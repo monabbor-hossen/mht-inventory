@@ -1,0 +1,10 @@
+{
+  "description": "Manage warehouse inventory, barcode-based stock movements, and daily expenses in one dashboard for administrators and warehouse staff.",
+  "robots": {
+    "index": false
+  },
+  "accessibility": {
+    "addBypassLinks": false,
+    "ignoreReducedMotion": false
+  }
+}

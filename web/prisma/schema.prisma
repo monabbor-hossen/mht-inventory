@@ -1,0 +1,178 @@
+// ====================================================================
+// MHT Inventory & Accounts System - Prisma Schema (MySQL)
+// Clean Architecture Data Model for Warehouse Management & Flutter API
+// ====================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+// --------------------------------------------------
+// ENUMS
+// --------------------------------------------------
+
+enum Role {
+  ADMIN
+  MANAGER
+  STAFF
+}
+
+enum BatchStatus {
+  DRAFT
+  COMPLETED
+}
+
+enum BarcodeStatus {
+  IN_STOCK
+  DISPATCHED
+  DAMAGED
+  VOID
+}
+
+enum ExpenseCategory {
+  Labor
+  Transport
+  Utility
+  Others
+}
+
+enum DamageReason {
+  Torn
+  Moisture
+  Weight_Shortage
+}
+
+enum LogAction {
+  CREATE
+  UPDATE
+  DELETE
+  SCAN
+}
+
+// --------------------------------------------------
+// CORE ENTITIES & RELATIONS
+// --------------------------------------------------
+
+/// User entity for Super Admin, Manager, and Staff authentication
+model User {
+  id            Int             @id @default(autoincrement())
+  username      String?         @unique @db.VarChar(50)
+  name          String          @db.VarChar(100)
+  role          Role            @default(STAFF)
+  password_hash String          @db.VarChar(255)
+  created_at    DateTime        @default(now())
+  updated_at    DateTime        @updatedAt
+
+  // Relationships
+  scanned_items  BarcodeItem[]  @relation("UserScannedItems")
+  expenses       Expense[]
+  damage_records DamageRecord[]
+  activity_logs  ActivityLog[]
+
+  @@map("users")
+}
+
+/// Inbound Batch entity supporting Blind Receipt (DRAFT) and Advance Entry (COMPLETED)
+model Batch {
+  id             Int             @id @default(autoincrement())
+  batch_number   String          @unique @db.VarChar(60)
+  supplier_name  String?         @db.VarChar(150)
+  category       String?         @db.VarChar(100)
+  total_quantity Int             @default(0)
+  status         BatchStatus     @default(DRAFT)
+  created_at     DateTime        @default(now())
+  updated_at     DateTime        @updatedAt
+
+  // Relationships
+  barcodes       BarcodeItem[]
+
+  @@index([status])
+  @@index([created_at])
+  @@map("batches")
+}
+
+/// Individual serialized sack/bag item with 1D/2D unique barcode string
+model BarcodeItem {
+  id                  Int            @id @default(autoincrement())
+  barcode_string      String         @unique @db.VarChar(100)
+  batch_id            Int
+  status              BarcodeStatus  @default(IN_STOCK)
+  scanned_by_user_id  Int?
+  dispatched_at       DateTime?
+  created_at          DateTime       @default(now())
+  updated_at          DateTime       @updatedAt
+
+  // Relationships
+  batch               Batch          @relation(fields: [batch_id], references: [id], onDelete: Cascade)
+  scanned_by          User?          @relation("UserScannedItems", fields: [scanned_by_user_id], references: [id], onDelete: SetNull)
+  damage_record       DamageRecord?
+
+  @@index([batch_id])
+  @@index([status])
+  @@index([scanned_by_user_id])
+  @@map("barcode_items")
+}
+
+/// Warehouse Petty Cash & Ledger Expense entity
+model Expense {
+  id           Int             @id @default(autoincrement())
+  category     ExpenseCategory
+  amount       Decimal         @db.Decimal(12, 2)
+  note         String          @db.Text
+  receipt_url  String?         @db.Text
+  created_by   Int
+  created_at   DateTime        @default(now())
+  updated_at   DateTime        @updatedAt
+
+  // Relationships
+  user         User            @relation(fields: [created_by], references: [id], onDelete: Restrict)
+
+  @@index([category])
+  @@index([created_at])
+  @@index([created_by])
+  @@map("expenses")
+}
+
+/// Damaged inventory record linked to specific scanned barcode item
+model DamageRecord {
+  id          Int          @id @default(autoincrement())
+  barcode_id  Int          @unique
+  reason      DamageReason
+  photo_url   String?      @db.Text
+  logged_by   Int
+  created_at  DateTime     @default(now())
+  updated_at  DateTime     @updatedAt
+
+  // Relationships
+  barcode     BarcodeItem  @relation(fields: [barcode_id], references: [id], onDelete: Cascade)
+  user        User         @relation(fields: [logged_by], references: [id], onDelete: Restrict)
+
+  @@index([reason])
+  @@index([logged_by])
+  @@index([created_at])
+  @@map("damage_records")
+}
+
+/// Real-time Audit Trail & Activity Log
+model ActivityLog {
+  id            Int        @id @default(autoincrement())
+  user_id       Int?
+  action        LogAction
+  target_entity String     @db.VarChar(50)
+  description   String     @db.Text
+  timestamp     DateTime   @default(now())
+
+  // Relationships
+  user          User?      @relation(fields: [user_id], references: [id], onDelete: SetNull)
+
+  @@index([action])
+  @@index([target_entity])
+  @@index([timestamp])
+  @@index([user_id])
+  @@map("activity_logs")
+}

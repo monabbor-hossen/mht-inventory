@@ -1,0 +1,60 @@
+# Dependencies
+node_modules/
+*/node_modules/
+.pnp
+.pnp.js
+
+# Next.js build output
+.next/
+*/.next/
+out/
+*/out/
+
+# Production builds
+build/
+*/build/
+dist/
+*/dist/
+
+# Flutter / Dart
+.dart_tool/
+*/.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.pub-cache/
+.pub/
+android/app/debug/
+android/app/profile/
+android/app/release/
+*.iml
+
+# Environment variables & secrets
+.env
+.env*.local
+*.env
+*/.env
+*/.env*.local
+!.env.example
+!*/.env.example
+
+# TypeScript
+*.tsbuildinfo
+next-env.d.ts
+
+# Logs & debugging
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# IDE & OS
+.DS_Store
+Thumbs.db
+.idea/
+*/.idea/
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
