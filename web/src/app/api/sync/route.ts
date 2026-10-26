@@ -12,7 +12,7 @@ export async function GET() {
     const logs = await activityLogRepository.getRecentLogs(30)
     return jsonResponse({
       success: true,
-      logs: logs.map((l) => ({
+      logs: logs.map((l: any) => ({
         id: l.id,
         recordId: `REC-${l.id}`,
         kind: l.action,

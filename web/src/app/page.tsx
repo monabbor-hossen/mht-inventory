@@ -3,30 +3,95 @@
 import { useEffect, useState } from 'react'
 import { Button, Card, Field, Icon, Logo, Toast, inputCls } from '@/components/ui'
 import { generateBarcodeSvg, generateTscCommand } from '@/lib/barcode'
+import { ProductMasterView } from '@/presentation/components/ProductMasterView'
+import { LocationView } from '@/presentation/components/LocationView'
+import { CycleCountView } from '@/presentation/components/CycleCountView'
+import { ThermalStickerModal } from '@/presentation/components/ThermalStickerModal'
+import { FifoAlertModal } from '@/presentation/components/FifoAlertModal'
 
-type NavId = 'dashboard' | 'inbound' | 'scan' | 'damaged' | 'accounts' | 'audit'
+export type NavId =
+  | 'dashboard'
+  | 'inbound'
+  | 'products'
+  | 'locations'
+  | 'scan'
+  | 'cyclecount'
+  | 'damaged'
+  | 'accounts'
+  | 'settings'
+  | 'audit'
 
-interface NavItem {
-  id: NavId
-  label: string
-  shortLabel: string
-  icon: string
-  frame: string
+export type Lang = 'EN' | 'BN'
+
+export const dict: Record<Lang, Record<string, string>> = {
+  EN: {
+    dashboard: 'Admin Dashboard',
+    inbound: 'Inbound & Print',
+    products: 'Product Master Entry',
+    locations: 'Warehouse Locations & Bins',
+    scan: 'Smart Scanner',
+    cyclecount: 'Cycle Counting Audits',
+    damaged: 'Damage & Return',
+    accounts: 'Accounts & Ledger',
+    settings: 'Offline Sync',
+    audit: 'Activity & Audit',
+    exportReport: 'Export Report (PDF/CSV)',
+    totalStock: 'Total Stock (Bags)',
+    dispatchedToday: 'Dispatched Today',
+    expensesToday: 'Total Expense Today (BDT)',
+    damagedStock: 'Damaged Stock',
+    stockInVsOut: 'Stock In vs. Stock Out (Last 7 Days)',
+    recentActivity: 'Recent Activity',
+    lowStockAlerts: 'Low Stock Alerts',
+    synced: 'Online',
+    syncing: 'Syncing...',
+    offline: 'Offline Mode',
+    signOut: 'Sign out',
+  },
+  BN: {
+    dashboard: 'অ্যাডমিন ড্যাশবোর্ড',
+    inbound: 'ইনবাউন্ড ও প্রিন্ট',
+    products: 'প্রোডাক্ট মাস্টার এন্ট্রি',
+    locations: 'গুদাম লোকেশন ও বিন ট্র্যাকিং',
+    scan: 'স্মার্ট স্ক্যানার',
+    cyclecount: 'সাইকেল কাউন্ট অডিট',
+    damaged: 'ড্যামেজ ও রিটার্ন',
+    accounts: 'হিসাব ও লেজার',
+    settings: 'অফলাইন সিঙ্ক',
+    audit: 'কার্যক্রম ও অডিট',
+    exportReport: 'রিপোর্ট এক্সপোর্ট (PDF/CSV)',
+    totalStock: 'মোট মজুদ (বস্তা)',
+    dispatchedToday: 'আজকের ডিসপ্যাচ',
+    expensesToday: 'আজকের মোট খরচ (BDT)',
+    damagedStock: 'ক্ষতিগ্রস্ত স্টক',
+    stockInVsOut: 'স্টক ইন বনাম স্টক আউট (গত ৭ দিন)',
+    recentActivity: 'সাম্প্রতিক কার্যক্রম',
+    lowStockAlerts: 'স্বল্প মজুদ সতর্কতা',
+    synced: 'অনলাইন',
+    syncing: 'সিঙ্ক হচ্ছে...',
+    offline: 'অফলাইন মোড',
+    signOut: 'লগ আউট',
+  },
 }
 
-const navItems: NavItem[] = [
-  { id: 'dashboard', label: 'Dashboard Overview', shortLabel: 'Dashboard', icon: 'dashboard', frame: 'DashboardScreen' },
-  { id: 'inbound', label: 'Inbound & Barcodes', shortLabel: 'Inbound', icon: 'inbound', frame: 'InboundScreen' },
-  { id: 'scan', label: 'Scanner & Dispatch', shortLabel: 'Scanner', icon: 'scan', frame: 'ScanScreen' },
-  { id: 'damaged', label: 'Damage Return', shortLabel: 'Damaged', icon: 'damaged', frame: 'DamageReturnScreen' },
-  { id: 'accounts', label: 'Accounts & Ledger', shortLabel: 'Ledger', icon: 'accounts', frame: 'AccountsScreen' },
-  { id: 'audit', label: 'Activity & Audit', shortLabel: 'Audit', icon: 'cloudCheck', frame: 'AuditTrailScreen' },
-]
+export const navItems = [
+  { id: 'dashboard', key: 'dashboard', icon: 'dashboard', frame: 'DashboardScreen', adminOrMgrOnly: true },
+  { id: 'inbound', key: 'inbound', icon: 'inbound', frame: 'InboundScreen', adminOrMgrOnly: true },
+  { id: 'products', key: 'products', icon: 'bag', frame: 'ProductMasterScreen', adminOrMgrOnly: true },
+  { id: 'locations', key: 'locations', icon: 'zone', frame: 'LocationScreen', adminOrMgrOnly: true },
+  { id: 'scan', key: 'scan', icon: 'scan', frame: 'ScanScreen', adminOrMgrOnly: false },
+  { id: 'cyclecount', key: 'cyclecount', icon: 'check', frame: 'CycleCountScreen', adminOrMgrOnly: false },
+  { id: 'damaged', key: 'damaged', icon: 'damaged', frame: 'DamageReturnScreen', adminOrMgrOnly: false },
+  { id: 'accounts', key: 'accounts', icon: 'accounts', frame: 'AccountsScreen', adminOrMgrOnly: false },
+  { id: 'settings', key: 'settings', icon: 'settings', frame: 'OfflineSyncScreen', adminOrMgrOnly: false },
+  { id: 'audit', key: 'audit', icon: 'cloudCheck', frame: 'AuditTrailScreen', adminOrMgrOnly: true },
+] as const
 
 export default function Home() {
   const [page, setPage] = useState<NavId>('dashboard')
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [role, setRole] = useState<'Super Admin' | 'Manager' | 'Operator'>('Super Admin')
+  const [lang, setLang] = useState<Lang>('EN')
   const [syncState, setSyncState] = useState<'synced' | 'offline' | 'syncing'>('synced')
   const [exportMenuOpen, setExportMenuOpen] = useState(false)
   const [toast, setToast] = useState<{ message: string; tone: 'success' | 'error' | 'warning' } | null>(null)
@@ -52,6 +117,12 @@ export default function Home() {
   const [scanInput, setScanInput] = useState('')
   const [scanResult, setScanResult] = useState<any | null>(null)
   const [scanLoading, setScanLoading] = useState(false)
+  const [fifoAlert, setFifoAlert] = useState<{
+    attemptedBatch: string
+    olderBatch: string
+    barcodeString: string
+  } | null>(null)
+  const [thermalModalBarcode, setThermalModalBarcode] = useState<string | null>(null)
 
   // Modals
   const [showBlindModal, setShowBlindModal] = useState(false)
@@ -93,7 +164,20 @@ export default function Home() {
     year: 'numeric',
   })
 
-  const currentNav = navItems.find((n) => n.id === page) || navItems[0]
+  const t = dict[lang] ?? dict.EN
+  const isOperator = role === 'Operator'
+  const visibleNav = isOperator
+    ? navItems.filter((n) => !n.adminOrMgrOnly)
+    : navItems
+  const currentNav = visibleNav.find((n) => n.id === page) || visibleNav[0]
+
+  const handleRoleChange = (nextRole: 'Super Admin' | 'Manager' | 'Operator') => {
+    setRole(nextRole)
+    if (nextRole === 'Operator' && (page === 'dashboard' || page === 'inbound')) {
+      setPage('scan')
+    }
+    setToast({ message: `Switched active view to ${nextRole}`, tone: 'success' })
+  }
 
   // Data fetching
   const refreshAllData = async () => {
@@ -250,9 +334,9 @@ export default function Home() {
     }
   }
 
-  // Scanner Dispatch Handler
-  const handleScanSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
+  // Scanner Dispatch Handler with strict FIFO validation feedback
+  const handleScanSubmit = async (e?: React.FormEvent, override = false) => {
+    if (e) e.preventDefault()
     const code = scanInput.trim()
     if (!code) return
     setScanLoading(true)
@@ -261,14 +345,22 @@ export default function Home() {
       const res = await fetch('/api/scan/dispatch', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ barcode: code }),
+        body: JSON.stringify({ barcode: code, override_fifo: override }),
       })
       const data = await res.json()
       setScanResult(data)
       if (data.success) {
         setToast({ message: `Dispatched: ${code}`, tone: 'success' })
         setScanInput('')
+        setFifoAlert(null)
         refreshAllData()
+      } else if (data.code === 'FIFO_VIOLATION') {
+        setFifoAlert({
+          attemptedBatch: data.attemptedBatchNumber,
+          olderBatch: data.olderBatchNumber,
+          barcodeString: code,
+        })
+        setToast({ message: data.error, tone: 'error' })
       } else {
         setToast({ message: data.error || 'Scan dispatch rejected', tone: 'error' })
       }
@@ -362,14 +454,18 @@ export default function Home() {
 
         {/* Sidebar Nav Items */}
         <nav className="mt-4 flex w-full flex-col gap-1">
-          {navItems.map((n) => {
+          {visibleNav.map((n) => {
             const active = currentNav.id === n.id
+            const label =
+              isOperator && n.id === 'accounts'
+                ? lang === 'BN' ? 'পেটি ক্যাশ' : 'Petty Expense'
+                : t[n.key]
             return (
               <button
                 key={n.id}
                 type="button"
-                onClick={() => setPage(n.id)}
-                title={n.label}
+                onClick={() => setPage(n.id as any)}
+                title={label}
                 className={`group flex h-11 w-full items-center gap-3 rounded-full px-3.5 text-sm font-semibold transition-all duration-150 cursor-pointer ${
                   active
                     ? 'bg-primary-soft text-primary shadow-2xs'
@@ -377,7 +473,7 @@ export default function Home() {
                 } ${sidebarCollapsed ? 'justify-center px-0' : ''}`}
               >
                 <Icon name={n.icon} className="size-5 shrink-0" />
-                {!sidebarCollapsed && <span className="truncate">{n.label}</span>}
+                {!sidebarCollapsed && <span className="truncate">{label}</span>}
                 {!sidebarCollapsed && n.id === 'damaged' && damages.length > 0 && (
                   <span className="ml-auto rounded-full bg-error-soft px-2 py-0.5 font-mono text-[10px] font-bold text-error">
                     {damages.length}
@@ -404,7 +500,7 @@ export default function Home() {
             }`}
           >
             <Icon name="logout" className="size-5 shrink-0" />
-            {!sidebarCollapsed && <span>Sign Out</span>}
+            {!sidebarCollapsed && <span>{t.signOut}</span>}
           </button>
         </div>
       </aside>
@@ -424,7 +520,9 @@ export default function Home() {
 
           <div className="min-w-0">
             <h1 className="truncate text-base font-bold tracking-tight text-ink sm:text-lg">
-              {currentNav.label}
+              {isOperator && currentNav.id === 'accounts'
+                ? lang === 'BN' ? 'পেটি ক্যাশ খরচ যোগ করুন' : 'Add Petty Expense'
+                : t[currentNav.key]}
             </h1>
             <div className="hidden items-center gap-2 text-xs text-muted sm:flex">
               <span>{todayFormatted}</span>
@@ -439,11 +537,7 @@ export default function Home() {
               <select
                 aria-label="Switch active role"
                 value={role}
-                onChange={(e) => {
-                  const nextRole = e.target.value as any
-                  setRole(nextRole)
-                  setToast({ message: `Switched active view to ${nextRole}`, tone: 'success' })
-                }}
+                onChange={(e) => handleRoleChange(e.target.value as any)}
                 className="h-9 rounded-full border border-line bg-bg pl-3 pr-7 text-xs font-bold text-ink outline-none transition-colors hover:border-primary/40 cursor-pointer"
               >
                 <option value="Super Admin">Role: Super Admin</option>
@@ -461,7 +555,7 @@ export default function Home() {
                   className="inline-flex h-9 items-center gap-1.5 rounded-full border border-line bg-bg px-3 text-xs font-semibold text-ink transition-colors hover:border-primary/40 hover:bg-primary-soft/50 cursor-pointer"
                 >
                   <Icon name="download" className="size-3.5 text-primary" />
-                  <span className="hidden lg:inline">Export Report</span>
+                  <span className="hidden lg:inline">{t.exportReport}</span>
                   <span className="lg:hidden">Export</span>
                 </button>
 
@@ -489,30 +583,84 @@ export default function Home() {
                         .CSV
                       </span>
                     </a>
+                    <a
+                      href="/api/reports?type=valuation&format=csv"
+                      download
+                      onClick={() => setExportMenuOpen(false)}
+                      className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-xs font-semibold text-ink hover:bg-bg cursor-pointer"
+                    >
+                      <span>Inventory Valuation</span>
+                      <span className="rounded bg-primary-soft px-1.5 py-0.5 font-mono text-[10px] text-primary">
+                        .CSV
+                      </span>
+                    </a>
+                    <a
+                      href="/api/reports?type=movements&format=csv"
+                      download
+                      onClick={() => setExportMenuOpen(false)}
+                      className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-xs font-semibold text-ink hover:bg-bg cursor-pointer"
+                    >
+                      <span>Movement History</span>
+                      <span className="rounded bg-accent-soft px-1.5 py-0.5 font-mono text-[10px] text-accent">
+                        .CSV
+                      </span>
+                    </a>
                   </div>
                 )}
               </div>
             )}
 
-            {/* Persistent Online / Sync Indicator Toggle */}
+            {/* Persistent Global Indicator: "Online" (Green dot) or "Offline Mode" (Red slash) */}
             <button
               type="button"
               onClick={() => {
-                setSyncState((prev) => (prev === 'synced' ? 'offline' : 'synced'))
-                setToast({
-                  message: syncState === 'synced' ? 'Switched to Offline Simulation Mode' : 'Online Sync Active',
-                  tone: syncState === 'synced' ? 'warning' : 'success',
-                })
+                setSyncState((prev) => (prev === 'synced' ? 'offline' : prev === 'offline' ? 'syncing' : 'synced'))
               }}
-              className="inline-flex h-9 items-center gap-1.5 rounded-full border border-line bg-bg px-3 text-xs font-semibold cursor-pointer"
+              title="Click to toggle Online / Offline Mode"
+              className={`inline-flex h-9 items-center gap-1.5 rounded-full border px-3 text-xs font-bold transition-all cursor-pointer ${
+                syncState === 'synced'
+                  ? 'border-success/30 bg-success-soft text-success'
+                  : syncState === 'syncing'
+                  ? 'border-accent/40 bg-accent-soft text-accent'
+                  : 'border-error/30 bg-error-soft text-error'
+              }`}
             >
-              <span
-                className={`size-2 rounded-full ${syncState === 'synced' ? 'bg-success' : 'bg-error'}`}
-              />
-              <span className="hidden sm:inline">
-                {syncState === 'synced' ? 'Online' : 'Offline Mode'}
+              {syncState === 'synced' ? (
+                <span className="size-2 rounded-full bg-success" />
+              ) : (
+                <Icon
+                  name={syncState === 'syncing' ? 'sync' : 'cloudOff'}
+                  className={`size-3.5 ${syncState === 'syncing' ? 'animate-spin' : ''}`}
+                />
+              )}
+              <span className="hidden md:inline">
+                {syncState === 'synced'
+                  ? t.synced
+                  : syncState === 'syncing'
+                  ? t.syncing
+                  : t.offline}
               </span>
             </button>
+
+            {/* Language Toggle (EN / BN) */}
+            <div
+              className="inline-flex items-center rounded-full border border-line bg-bg p-0.5"
+              role="group"
+              aria-label="Language toggle"
+            >
+              {(['EN', 'BN'] as Lang[]).map((l) => (
+                <button
+                  key={l}
+                  type="button"
+                  onClick={() => setLang(l)}
+                  className={`rounded-full px-2.5 py-1 text-xs font-bold transition-all cursor-pointer ${
+                    lang === l ? 'bg-primary text-white shadow-2xs' : 'text-muted hover:text-ink'
+                  }`}
+                >
+                  {l}
+                </button>
+              ))}
+            </div>
 
             {/* Refresh Button */}
             <button
@@ -823,6 +971,15 @@ export default function Home() {
                               >
                                 Print Barcode
                               </button>
+                              <button
+                                onClick={() => {
+                                  const code = b.barcodes?.[0]?.barcode_string || `${b.batch_number}-0001`
+                                  setThermalModalBarcode(code)
+                                }}
+                                className="rounded-lg border border-primary/30 bg-primary-soft/50 px-2.5 py-1 text-[11px] font-semibold text-primary hover:bg-primary-soft cursor-pointer"
+                              >
+                                Thermal Label (TSC/Zebra)
+                              </button>
                             </td>
                           </tr>
                         ))
@@ -832,6 +989,20 @@ export default function Home() {
                 </div>
               </Card>
             </div>
+          )}
+
+          {/* ======================================================== */}
+          {/* VIEW: PRODUCT MASTER ENTRY */}
+          {/* ======================================================== */}
+          {page === 'products' && (
+            <ProductMasterView onToast={(msg, tone) => setToast({ message: msg, tone })} />
+          )}
+
+          {/* ======================================================== */}
+          {/* VIEW: WAREHOUSE LOCATIONS & BINS */}
+          {/* ======================================================== */}
+          {page === 'locations' && (
+            <LocationView onToast={(msg, tone) => setToast({ message: msg, tone })} />
           )}
 
           {/* ======================================================== */}
@@ -913,6 +1084,13 @@ export default function Home() {
                 </Card>
               </div>
             </div>
+          )}
+
+          {/* ======================================================== */}
+          {/* VIEW: CYCLE COUNTING & AUDITS */}
+          {/* ======================================================== */}
+          {page === 'cyclecount' && (
+            <CycleCountView onToast={(msg, tone) => setToast({ message: msg, tone })} />
           )}
 
           {/* ======================================================== */}
@@ -1105,76 +1283,261 @@ export default function Home() {
           )}
 
           {/* ======================================================== */}
-          {/* VIEW 6: AUDIT TRAIL */}
+          {/* VIEW 6: OFFLINE SYNC & AUDIT TRAIL (MATCHING FIGMA) */}
           {/* ======================================================== */}
-          {page === 'audit' && (
-            <div className="space-y-6">
-              <div className="flex flex-wrap items-center justify-between gap-4">
-                <div>
-                  <h2 className="text-lg font-bold text-ink">System Audit Trail & Event Logs</h2>
-                  <p className="text-xs text-muted">Every transaction, barcode creation, and scan event across all devices</p>
-                </div>
-                <Button
-                  variant="outlined"
-                  iconName="sync"
-                  showIcon
-                  label="Refresh Logs"
-                  onClick={refreshAllData}
-                />
+          {(page === 'settings' || page === 'audit') && (
+            <div data-frame="OfflineSyncScreen" className="flex flex-col gap-6">
+              {/* Sync Dashboard & Network Status */}
+              <div className="grid gap-6 lg:grid-cols-2">
+                <Card className="flex flex-col justify-between p-6">
+                  <div>
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div>
+                        <h2 className="text-lg font-bold text-ink">
+                          {lang === 'BN' ? 'অফলাইন সিঙ্ক ও নেটওয়ার্ক অবস্থা' : 'Offline Sync & Network Status'}
+                        </h2>
+                        <p className="text-xs text-muted">
+                          {lang === 'BN'
+                            ? 'ওয়াই-ফাই ড্রপ হলে ১৫০০ বর্গফুট গুদামের জন্য লোকাল বাফার সক্রিয় থাকে'
+                            : 'Local SQLite queue for 1,500 sq ft warehouse floor when Wi-Fi drops'}
+                        </p>
+                      </div>
+                      <span
+                        className={`inline-flex items-center gap-2 rounded-full px-3.5 py-1 text-xs font-bold ${
+                          syncState === 'synced'
+                            ? 'bg-success-soft text-success'
+                            : syncState === 'syncing'
+                            ? 'bg-accent-soft text-accent'
+                            : 'bg-error-soft text-error'
+                        }`}
+                      >
+                        {syncState === 'synced' ? (
+                          <>
+                            <span className="size-2.5 rounded-full bg-success" />
+                            {t.synced}
+                          </>
+                        ) : syncState === 'syncing' ? (
+                          <>
+                            <Icon name="sync" className="size-3.5 animate-spin text-accent" />
+                            {t.syncing}
+                          </>
+                        ) : (
+                          <>
+                            <Icon name="cloudOff" className="size-3.5 text-error" />
+                            {t.offline}
+                          </>
+                        )}
+                      </span>
+                    </div>
+
+                    {/* Network Switcher */}
+                    <div className="mt-5 flex items-center justify-between rounded-2xl border border-line bg-bg p-4">
+                      <div className="flex items-center gap-3">
+                        <span
+                          className={`grid size-10 place-items-center rounded-xl ${
+                            syncState === 'synced' ? 'bg-success-soft text-success' : 'bg-error-soft text-error'
+                          }`}
+                        >
+                          <Icon name={syncState === 'synced' ? 'cloudCheck' : 'cloudOff'} className="size-5" />
+                        </span>
+                        <div>
+                          <div className="text-sm font-bold text-ink">
+                            Status:{' '}
+                            <span className={syncState === 'synced' ? 'text-success' : 'text-error'}>
+                              {syncState === 'synced' ? 'Online (Green Dot)' : 'Offline Mode (Red Slash)'}
+                            </span>
+                          </div>
+                          <div className="text-xs text-muted">
+                            {syncState === 'synced'
+                              ? 'Connected to MHT Cloud Sync Engine'
+                              : 'Local storage buffer active — queuing scans & expenses'}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="inline-flex rounded-xl border border-line bg-surface p-1">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSyncState('synced')
+                            setToast({ message: 'Online mode activated', tone: 'success' })
+                          }}
+                          className={`rounded-lg px-3 py-1.5 text-xs font-bold transition-all cursor-pointer ${
+                            syncState === 'synced' ? 'bg-success text-white' : 'text-muted hover:text-ink'
+                          }`}
+                        >
+                          Online
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSyncState('offline')
+                            setToast({ message: 'Offline simulation mode activated', tone: 'warning' })
+                          }}
+                          className={`rounded-lg px-3 py-1.5 text-xs font-bold transition-all cursor-pointer ${
+                            syncState === 'offline' ? 'bg-error text-white' : 'text-muted hover:text-ink'
+                          }`}
+                        >
+                          Offline
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Pending Data Queue Banner */}
+                    <div className="mt-4 flex items-center justify-between rounded-2xl border border-accent/35 bg-accent-soft/55 p-4">
+                      <div>
+                        <div className="text-xs font-bold uppercase tracking-wider text-accent">
+                          Pending Local Data Queue
+                        </div>
+                        <div className="mt-1 text-base font-bold text-ink">
+                          {syncState === 'offline'
+                            ? '12 Scans Pending · 2 Expenses Pending'
+                            : '0 Scans Pending · All data synchronized'}
+                        </div>
+                      </div>
+                      <span className="rounded-xl bg-white px-3 py-1.5 font-mono text-sm font-bold text-accent shadow-2xs">
+                        {syncState === 'offline' ? '12 Scans' : 'Synced'}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="mt-6 flex items-center gap-3">
+                    <Button
+                      variant="filled"
+                      iconName="cloudSync"
+                      showIcon
+                      label="Force Sync to Cloud"
+                      onClick={() => {
+                        setSyncState('syncing')
+                        setToast({ message: 'Syncing local buffer to MHT MySQL Cloud...', tone: 'success' })
+                        setTimeout(() => {
+                          setSyncState('synced')
+                          setToast({ message: 'Force Sync complete: All movements & ledger vouchers synced', tone: 'success' })
+                        }, 900)
+                      }}
+                      className="flex-1"
+                    />
+                    <Button
+                      variant="outlined"
+                      iconName="sync"
+                      showIcon
+                      label="Refresh"
+                      onClick={refreshAllData}
+                    />
+                  </div>
+                </Card>
+
+                {/* System Diagnostics & Storage Card */}
+                <Card className="flex flex-col justify-between p-6">
+                  <div>
+                    <h2 className="text-lg font-bold text-ink">
+                      {lang === 'BN' ? 'সিস্টেম স্টোরেজ ও ডায়াগনস্টিকস' : 'System Storage & Diagnostics'}
+                    </h2>
+                    <p className="text-xs text-muted">
+                      Warehouse Node · MariaDB/MySQL Connection Pool · Next.js REST API
+                    </p>
+
+                    <div className="mt-5 space-y-3">
+                      <div className="flex items-center justify-between rounded-xl border border-line bg-bg p-3 text-xs">
+                        <span className="text-muted">Database Engine:</span>
+                        <span className="font-mono font-bold text-ink">MySQL 8.0 (XAMPP Port 3306)</span>
+                      </div>
+                      <div className="flex items-center justify-between rounded-xl border border-line bg-bg p-3 text-xs">
+                        <span className="text-muted">ORM & Client:</span>
+                        <span className="font-mono font-bold text-primary">Prisma Client v6.19.3</span>
+                      </div>
+                      <div className="flex items-center justify-between rounded-xl border border-line bg-bg p-3 text-xs">
+                        <span className="text-muted">Thermal Printer Mode:</span>
+                        <span className="font-mono font-bold text-ink">TSPL / TSC TE244 Direct</span>
+                      </div>
+                      <div className="flex items-center justify-between rounded-xl border border-line bg-bg p-3 text-xs">
+                        <span className="text-muted">Active Role View:</span>
+                        <span className="font-bold text-primary">{role}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="mt-6">
+                    <div className="text-[11px] text-muted">
+                      MHT Inventory WMS · 1,500 sq ft Tejgaon Central Warehouse · Clean Architecture
+                    </div>
+                  </div>
+                </Card>
               </div>
 
-              <Card className="overflow-hidden">
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left text-xs">
-                    <thead className="border-b border-line bg-bg/70 text-muted">
-                      <tr>
-                        <th className="p-3.5 font-semibold">Event ID</th>
-                        <th className="p-3.5 font-semibold">Action</th>
-                        <th className="p-3.5 font-semibold">Target Entity</th>
-                        <th className="p-3.5 font-semibold">Description</th>
-                        <th className="p-3.5 font-semibold">User</th>
-                        <th className="p-3.5 font-semibold">Timestamp</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-line/60">
-                      {recentLogs.length === 0 ? (
+              {/* Audit Trail & Event Logs */}
+              <div className="space-y-4">
+                <div className="flex flex-wrap items-center justify-between gap-4">
+                  <div>
+                    <h2 className="text-lg font-bold text-ink">
+                      {lang === 'BN' ? 'সিস্টেম অডিট ট্রেইল ও ইভেন্ট লগ' : 'System Audit Trail & Event Logs'}
+                    </h2>
+                    <p className="text-xs text-muted">
+                      Every transaction, barcode creation, damage report, and scan event across all devices
+                    </p>
+                  </div>
+                  <Button
+                    variant="outlined"
+                    iconName="sync"
+                    showIcon
+                    label="Refresh Logs"
+                    onClick={refreshAllData}
+                  />
+                </div>
+
+                <Card className="overflow-hidden">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs">
+                      <thead className="border-b border-line bg-bg/70 text-muted">
                         <tr>
-                          <td colSpan={6} className="p-8 text-center text-muted">
-                            No audit trail events recorded.
-                          </td>
+                          <th className="p-3.5 font-semibold">Event ID</th>
+                          <th className="p-3.5 font-semibold">Action</th>
+                          <th className="p-3.5 font-semibold">Target Entity</th>
+                          <th className="p-3.5 font-semibold">Description</th>
+                          <th className="p-3.5 font-semibold">User</th>
+                          <th className="p-3.5 font-semibold">Timestamp</th>
                         </tr>
-                      ) : (
-                        recentLogs.map((log) => (
-                          <tr key={log.id} className="hover:bg-bg/40">
-                            <td className="p-3.5 font-mono text-muted">#{log.id}</td>
-                            <td className="p-3.5">
-                              <span
-                                className={`rounded-md px-2 py-0.5 text-[10px] font-bold ${
-                                  log.action === 'CREATE'
-                                    ? 'bg-emerald-100 text-emerald-800'
-                                    : log.action === 'SCAN'
-                                    ? 'bg-blue-100 text-blue-800'
-                                    : log.action === 'UPDATE'
-                                    ? 'bg-amber-100 text-amber-800'
-                                    : 'bg-gray-100 text-gray-800'
-                                }`}
-                              >
-                                {log.action}
-                              </span>
-                            </td>
-                            <td className="p-3.5 font-bold text-ink">{log.target_entity}</td>
-                            <td className="p-3.5 text-muted">{log.description}</td>
-                            <td className="p-3.5 text-ink">{log.user?.name || 'Staff'}</td>
-                            <td className="p-3.5 text-muted whitespace-nowrap">
-                              {new Date(log.timestamp).toLocaleString()}
+                      </thead>
+                      <tbody className="divide-y divide-line/60">
+                        {recentLogs.length === 0 ? (
+                          <tr>
+                            <td colSpan={6} className="p-8 text-center text-muted">
+                              No audit trail events recorded.
                             </td>
                           </tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </Card>
+                        ) : (
+                          recentLogs.map((log) => (
+                            <tr key={log.id} className="hover:bg-bg/40">
+                              <td className="p-3.5 font-mono text-muted">#{log.id}</td>
+                              <td className="p-3.5">
+                                <span
+                                  className={`rounded-md px-2 py-0.5 text-[10px] font-bold ${
+                                    log.action === 'CREATE'
+                                      ? 'bg-emerald-100 text-emerald-800'
+                                      : log.action === 'SCAN'
+                                      ? 'bg-blue-100 text-blue-800'
+                                      : log.action === 'UPDATE'
+                                      ? 'bg-amber-100 text-amber-800'
+                                      : 'bg-gray-100 text-gray-800'
+                                  }`}
+                                >
+                                  {log.action}
+                                </span>
+                              </td>
+                              <td className="p-3.5 font-bold text-ink">{log.target_entity}</td>
+                              <td className="p-3.5 text-muted">{log.description}</td>
+                              <td className="p-3.5 text-ink">{log.user?.name || 'Staff'}</td>
+                              <td className="p-3.5 text-muted whitespace-nowrap">
+                                {new Date(log.timestamp).toLocaleString()}
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </Card>
+              </div>
             </div>
           )}
         </main>
@@ -1185,16 +1548,30 @@ export default function Home() {
       {/* ======================================================== */}
       <nav
         data-frame="MobileBottomNav"
-        className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-6 border-t border-line bg-surface pb-[env(safe-area-inset-bottom)] md:hidden"
+        className="fixed inset-x-0 bottom-0 z-30 flex items-center justify-around border-t border-line bg-surface/95 px-2 py-1 backdrop-blur-md pb-[env(safe-area-inset-bottom)] md:hidden"
       >
-        {navItems.map((n) => {
+        {visibleNav.map((n) => {
           const active = currentNav.id === n.id
+          const shortLabel =
+            n.id === 'dashboard'
+              ? lang === 'BN' ? 'ড্যাশবোর্ড' : 'Dashboard'
+              : n.id === 'inbound'
+              ? lang === 'BN' ? 'ইনবাউন্ড' : 'Inbound'
+              : n.id === 'scan'
+              ? lang === 'BN' ? 'স্ক্যানার' : 'Scanner'
+              : n.id === 'damaged'
+              ? lang === 'BN' ? 'ড্যামেজ' : 'Damage'
+              : n.id === 'accounts'
+              ? isOperator
+                ? lang === 'BN' ? 'পেটি ক্যাশ' : 'Petty Cash'
+                : lang === 'BN' ? 'লেজার' : 'Ledger'
+              : lang === 'BN' ? 'সিঙ্ক' : 'Sync'
           return (
             <button
               key={n.id}
               type="button"
-              onClick={() => setPage(n.id)}
-              className="flex flex-col items-center gap-0.5 py-2 text-[10px] font-semibold cursor-pointer"
+              onClick={() => setPage(n.id as any)}
+              className="flex flex-col items-center gap-0.5 py-1.5 text-[10px] font-semibold cursor-pointer"
             >
               <span
                 className={`grid h-7 w-11 place-items-center rounded-full transition-all duration-200 ${
@@ -1203,7 +1580,9 @@ export default function Home() {
               >
                 <Icon name={n.icon} className="size-4" />
               </span>
-              <span className={active ? 'text-primary' : 'text-muted'}>{n.shortLabel}</span>
+              <span className={active ? 'text-primary font-bold' : 'text-muted'}>
+                {shortLabel}
+              </span>
             </button>
           )
         })}
@@ -1536,6 +1915,31 @@ export default function Home() {
           </Card>
         </div>
       )}
+
+      {/* FIFO Domain Error Violation Modal */}
+      {fifoAlert && (
+        <FifoAlertModal
+          attemptedBatch={fifoAlert.attemptedBatch}
+          olderBatch={fifoAlert.olderBatch}
+          barcodeString={fifoAlert.barcodeString}
+          canOverride={role === 'Super Admin' || role === 'Manager'}
+          onOverride={() => {
+            handleScanSubmit(undefined, true)
+            setFifoAlert(null)
+          }}
+          onClose={() => setFifoAlert(null)}
+        />
+      )}
+
+      {/* Thermal Sticker 1D/2D Barcode Preview & Direct TSPL/ZPL Printer Modal */}
+      {thermalModalBarcode && (
+        <ThermalStickerModal
+          barcodeString={thermalModalBarcode}
+          onClose={() => setThermalModalBarcode(null)}
+          onToast={(msg, tone) => setToast({ message: msg, tone })}
+        />
+      )}
     </div>
   )
 }
+

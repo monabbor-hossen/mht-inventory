@@ -1,5 +1,5 @@
 // ====================================================================
-// MHT Inventory & Accounts System - Prisma Schema (MySQL)
+// MHT Enterprise WMS - Prisma Schema (MySQL)
 // Clean Architecture Data Model for Warehouse Management & Flutter API
 // ====================================================================
 
@@ -17,6 +17,7 @@ datasource db {
 // --------------------------------------------------
 
 enum Role {
+  SUPER_ADMIN
   ADMIN
   MANAGER
   STAFF
@@ -25,19 +26,32 @@ enum Role {
 enum BatchStatus {
   DRAFT
   COMPLETED
+  CANCELLED
 }
 
 enum BarcodeStatus {
+  DRAFT
   IN_STOCK
   DISPATCHED
   DAMAGED
+  QUARANTINE
   VOID
+}
+
+enum TransactionType {
+  IN
+  OUT
+  ADJUSTMENT
+  RELOCATE
+  CYCLE_COUNT
 }
 
 enum ExpenseCategory {
   Labor
   Transport
   Utility
+  Equipment
+  Maintenance
   Others
 }
 
@@ -45,6 +59,16 @@ enum DamageReason {
   Torn
   Moisture
   Weight_Shortage
+  Broken_Seal
+  Expired
+  Other
+}
+
+enum CycleCountStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
 }
 
 enum LogAction {
@@ -52,90 +76,176 @@ enum LogAction {
   UPDATE
   DELETE
   SCAN
+  DISPATCH
+  RELOCATE
+  PRINT_BARCODE
+  CYCLE_COUNT
+  VOID
 }
 
 // --------------------------------------------------
 // CORE ENTITIES & RELATIONS
 // --------------------------------------------------
 
-/// User entity for Super Admin, Manager, and Staff authentication
+/// User entity for Super Admin, Manager, and Staff authentication with RBAC
 model User {
   id            Int             @id @default(autoincrement())
   username      String?         @unique @db.VarChar(50)
   name          String          @db.VarChar(100)
+  email         String?         @unique @db.VarChar(100)
   role          Role            @default(STAFF)
   password_hash String          @db.VarChar(255)
+  is_active     Boolean         @default(true)
   created_at    DateTime        @default(now())
   updated_at    DateTime        @updatedAt
 
   // Relationships
-  scanned_items  BarcodeItem[]  @relation("UserScannedItems")
-  expenses       Expense[]
-  damage_records DamageRecord[]
-  activity_logs  ActivityLog[]
+  scanned_items       BarcodeItem[]          @relation("UserScannedItems")
+  transactions        InventoryTransaction[]
+  expenses            Expense[]
+  damage_records      DamageRecord[]
+  activity_logs       ActivityLog[]
+  conducted_audits    CycleCount[]
 
   @@map("users")
 }
 
-/// Inbound Batch entity supporting Blind Receipt (DRAFT) and Advance Entry (COMPLETED)
-model Batch {
-  id             Int             @id @default(autoincrement())
-  batch_number   String          @unique @db.VarChar(60)
-  supplier_name  String?         @db.VarChar(150)
-  category       String?         @db.VarChar(100)
-  total_quantity Int             @default(0)
-  status         BatchStatus     @default(DRAFT)
-  created_at     DateTime        @default(now())
-  updated_at     DateTime        @updatedAt
+/// Product master catalog (SKU, name, category, unit weight, alert thresholds)
+model Product {
+  id              Int             @id @default(autoincrement())
+  sku             String          @unique @db.VarChar(60)
+  name            String          @db.VarChar(150)
+  category        String          @db.VarChar(100)
+  unit_weight     Decimal         @db.Decimal(10, 3) // In kg or standardized unit
+  unit_of_measure String          @default("kg") @db.VarChar(20)
+  description     String?         @db.Text
+  min_stock_alert Int             @default(10)
+  is_active       Boolean         @default(true)
+  created_at      DateTime        @default(now())
+  updated_at      DateTime        @updatedAt
 
   // Relationships
-  barcodes       BarcodeItem[]
+  batches         Batch[]
+  barcode_items   BarcodeItem[]
+  transactions    InventoryTransaction[]
+
+  @@index([category])
+  @@index([sku])
+  @@map("products")
+}
+
+/// Warehouse physical topology mapping (Zone, Aisle, Rack, Bin)
+model Location {
+  id           Int             @id @default(autoincrement())
+  code         String          @unique @db.VarChar(50) // E.g., "Z1-A02-R03-B04"
+  zone         String          @db.VarChar(50)         // Zone A, Dry Storage, Cold Room
+  aisle        String          @db.VarChar(50)         // Aisle 01
+  rack         String          @db.VarChar(50)         // Rack 02
+  bin          String          @db.VarChar(50)         // Bin 03
+  description  String?         @db.VarChar(255)
+  max_capacity Int             @default(100)
+  is_active    Boolean         @default(true)
+  created_at   DateTime        @default(now())
+  updated_at   DateTime        @updatedAt
+
+  // Relationships
+  barcode_items     BarcodeItem[]
+  transactions_from InventoryTransaction[] @relation("FromLocation")
+  transactions_to   InventoryTransaction[] @relation("ToLocation")
+  cycle_counts      CycleCount[]
+
+  @@index([zone])
+  @@index([code])
+  @@map("locations")
+}
+
+/// Inbound Batch / Lot supporting Blind Receiving (DRAFT) and Advance Shipping Notice (ASN)
+model Batch {
+  id                Int             @id @default(autoincrement())
+  batch_number      String          @unique @db.VarChar(60)
+  supplier_name     String?         @db.VarChar(150)
+  product_id        Int?
+  category          String?         @db.VarChar(100)
+  entry_date        DateTime        @default(now())
+  expected_quantity Int             @default(0)
+  received_quantity Int             @default(0)
+  status            BatchStatus     @default(DRAFT)
+  notes             String?         @db.Text
+  created_at        DateTime        @default(now())
+  updated_at        DateTime        @updatedAt
+
+  // Relationships
+  product           Product?        @relation(fields: [product_id], references: [id], onDelete: SetNull)
+  barcodes          BarcodeItem[]
+  transactions      InventoryTransaction[]
 
   @@index([status])
-  @@index([created_at])
+  @@index([entry_date])
+  @@index([product_id])
   @@map("batches")
 }
 
-/// Individual serialized sack/bag item with 1D/2D unique barcode string
+/// Individual serialized physical item with 1D/2D unique barcode identifier
 model BarcodeItem {
-  id                  Int            @id @default(autoincrement())
-  barcode_string      String         @unique @db.VarChar(100)
-  batch_id            Int
-  status              BarcodeStatus  @default(IN_STOCK)
-  scanned_by_user_id  Int?
-  dispatched_at       DateTime?
-  created_at          DateTime       @default(now())
-  updated_at          DateTime       @updatedAt
+  id                 Int            @id @default(autoincrement())
+  barcode_string     String         @unique @db.VarChar(100)
+  batch_id           Int
+  product_id         Int?
+  location_id        Int?
+  status             BarcodeStatus  @default(IN_STOCK)
+  scanned_by_user_id Int?
+  dispatched_at      DateTime?
+  created_at         DateTime       @default(now())
+  updated_at         DateTime       @updatedAt
 
   // Relationships
-  batch               Batch          @relation(fields: [batch_id], references: [id], onDelete: Cascade)
-  scanned_by          User?          @relation("UserScannedItems", fields: [scanned_by_user_id], references: [id], onDelete: SetNull)
-  damage_record       DamageRecord?
+  batch              Batch          @relation(fields: [batch_id], references: [id], onDelete: Cascade)
+  product            Product?       @relation(fields: [product_id], references: [id], onDelete: SetNull)
+  location           Location?      @relation(fields: [location_id], references: [id], onDelete: SetNull)
+  scanned_by         User?          @relation("UserScannedItems", fields: [scanned_by_user_id], references: [id], onDelete: SetNull)
+  damage_record      DamageRecord?
+  transactions       InventoryTransaction[]
+  cycle_count_items  CycleCountItem[]
 
   @@index([batch_id])
+  @@index([product_id])
+  @@index([location_id])
   @@index([status])
   @@index([scanned_by_user_id])
   @@map("barcode_items")
 }
 
-/// Warehouse Petty Cash & Ledger Expense entity
-model Expense {
-  id           Int             @id @default(autoincrement())
-  category     ExpenseCategory
-  amount       Decimal         @db.Decimal(12, 2)
-  note         String          @db.Text
-  receipt_url  String?         @db.Text
-  created_by   Int
-  created_at   DateTime        @default(now())
-  updated_at   DateTime        @updatedAt
+/// Immutable audit ledger for all inventory movements (IN, OUT, RELOCATE, ADJUSTMENT)
+model InventoryTransaction {
+  id               Int             @id @default(autoincrement())
+  barcode_item_id  Int?
+  product_id       Int?
+  batch_id         Int?
+  from_location_id Int?
+  to_location_id   Int?
+  movement_type    TransactionType
+  quantity         Int             @default(1)
+  user_id          Int?
+  reference_number String?         @db.VarChar(100) // ASN, Dispatch Order, or Audit Ticket
+  notes            String?         @db.Text
+  created_at       DateTime        @default(now())
 
   // Relationships
-  user         User            @relation(fields: [created_by], references: [id], onDelete: Restrict)
+  barcode_item     BarcodeItem?    @relation(fields: [barcode_item_id], references: [id], onDelete: SetNull)
+  product          Product?        @relation(fields: [product_id], references: [id], onDelete: SetNull)
+  batch            Batch?          @relation(fields: [batch_id], references: [id], onDelete: SetNull)
+  from_location    Location?       @relation("FromLocation", fields: [from_location_id], references: [id], onDelete: SetNull)
+  to_location      Location?       @relation("ToLocation", fields: [to_location_id], references: [id], onDelete: SetNull)
+  user             User?           @relation(fields: [user_id], references: [id], onDelete: SetNull)
 
-  @@index([category])
+  @@index([movement_type])
+  @@index([barcode_item_id])
+  @@index([product_id])
+  @@index([batch_id])
+  @@index([from_location_id])
+  @@index([to_location_id])
   @@index([created_at])
-  @@index([created_by])
-  @@map("expenses")
+  @@map("inventory_transactions")
 }
 
 /// Damaged inventory record linked to specific scanned barcode item
@@ -144,6 +254,7 @@ model DamageRecord {
   barcode_id  Int          @unique
   reason      DamageReason
   photo_url   String?      @db.Text
+  notes       String?      @db.Text
   logged_by   Int
   created_at  DateTime     @default(now())
   updated_at  DateTime     @updatedAt
@@ -158,13 +269,37 @@ model DamageRecord {
   @@map("damage_records")
 }
 
+/// Warehouse Petty Cash & Operational Expense Ledger
+model Expense {
+  id           Int             @id @default(autoincrement())
+  category     ExpenseCategory
+  amount       Decimal         @db.Decimal(12, 2)
+  title        String?         @db.VarChar(150)
+  note         String          @db.Text
+  receipt_url  String?         @db.Text
+  expense_date DateTime        @default(now())
+  created_by   Int
+  created_at   DateTime        @default(now())
+  updated_at   DateTime        @updatedAt
+
+  // Relationships
+  user         User            @relation(fields: [created_by], references: [id], onDelete: Restrict)
+
+  @@index([category])
+  @@index([expense_date])
+  @@index([created_by])
+  @@map("expenses")
+}
+
 /// Real-time Audit Trail & Activity Log
 model ActivityLog {
   id            Int        @id @default(autoincrement())
   user_id       Int?
   action        LogAction
   target_entity String     @db.VarChar(50)
+  entity_id     String?    @db.VarChar(100)
   description   String     @db.Text
+  metadata      Json?
   timestamp     DateTime   @default(now())
 
   // Relationships
@@ -175,4 +310,48 @@ model ActivityLog {
   @@index([timestamp])
   @@index([user_id])
   @@map("activity_logs")
+}
+
+/// Physical Inventory Cycle Counting & Stock Audits
+model CycleCount {
+  id           Int              @id @default(autoincrement())
+  count_number String           @unique @db.VarChar(50)
+  location_id  Int?
+  status       CycleCountStatus @default(PENDING)
+  conducted_by Int?
+  notes        String?          @db.Text
+  started_at   DateTime?
+  completed_at DateTime?
+  created_at   DateTime         @default(now())
+  updated_at   DateTime         @updatedAt
+
+  // Relationships
+  location     Location?        @relation(fields: [location_id], references: [id], onDelete: SetNull)
+  user         User?            @relation(fields: [conducted_by], references: [id], onDelete: SetNull)
+  items        CycleCountItem[]
+
+  @@index([status])
+  @@index([location_id])
+  @@index([created_at])
+  @@map("cycle_counts")
+}
+
+/// Individual items audited during a cycle count
+model CycleCountItem {
+  id              Int           @id @default(autoincrement())
+  cycle_count_id  Int
+  barcode_id      Int
+  expected_status BarcodeStatus
+  counted_status  BarcodeStatus
+  is_discrepancy  Boolean       @default(false)
+  notes           String?       @db.VarChar(255)
+  counted_at      DateTime      @default(now())
+
+  // Relationships
+  cycle_count     CycleCount    @relation(fields: [cycle_count_id], references: [id], onDelete: Cascade)
+  barcode         BarcodeItem   @relation(fields: [barcode_id], references: [id], onDelete: Cascade)
+
+  @@index([cycle_count_id])
+  @@index([barcode_id])
+  @@map("cycle_count_items")
 }

@@ -4,86 +4,77 @@
 
 import { prisma } from '../prisma'
 import { IUserRepository } from '@/domain/repositories'
-import { UserEntity } from '@/domain/entities'
+import { Role, UserEntity } from '@/domain/entities'
 
 export class PrismaUserRepository implements IUserRepository {
-  async findById(id: number): Promise<UserEntity | null> {
-    const user = await prisma.user.findUnique({
-      where: { id },
-    })
-    if (!user) return null
+  private toEntity(record: any): UserEntity {
     return {
-      id: user.id,
-      username: user.username,
-      name: user.name,
-      role: user.role,
-      password_hash: user.password_hash,
-      created_at: user.created_at,
-      updated_at: user.updated_at,
+      id: record.id,
+      username: record.username,
+      name: record.name,
+      email: record.email,
+      role: record.role as Role,
+      password_hash: record.password_hash,
+      is_active: record.is_active,
+      created_at: record.created_at,
+      updated_at: record.updated_at,
     }
   }
 
-  async findByName(name: string): Promise<UserEntity | null> {
-    const user = await prisma.user.findFirst({
-      where: { name },
-    })
-    if (!user) return null
-    return {
-      id: user.id,
-      username: user.username,
-      name: user.name,
-      role: user.role,
-      password_hash: user.password_hash,
-      created_at: user.created_at,
-      updated_at: user.updated_at,
-    }
+  async findById(id: number): Promise<UserEntity | null> {
+    const user = await prisma.user.findUnique({ where: { id } })
+    return user ? this.toEntity(user) : null
+  }
+
+  async findByUsername(username: string): Promise<UserEntity | null> {
+    const user = await prisma.user.findUnique({ where: { username } })
+    return user ? this.toEntity(user) : null
+  }
+
+  async findByEmail(email: string): Promise<UserEntity | null> {
+    const user = await prisma.user.findUnique({ where: { email } })
+    return user ? this.toEntity(user) : null
   }
 
   async findByIdentifier(identifier: string): Promise<UserEntity | null> {
-    const trimmed = identifier.trim()
     const user = await prisma.user.findFirst({
       where: {
         OR: [
-          { username: trimmed },
-          { name: trimmed },
-          { name: { contains: trimmed } },
+          { username: identifier },
+          { email: identifier },
+          { name: identifier },
         ],
       },
     })
-    if (!user) return null
-    return {
-      id: user.id,
-      username: user.username,
-      name: user.name,
-      role: user.role,
-      password_hash: user.password_hash,
-      created_at: user.created_at,
-      updated_at: user.updated_at,
-    }
+    return user ? this.toEntity(user) : null
   }
 
   async createUser(data: {
     username?: string | null
     name: string
-    role: 'ADMIN' | 'MANAGER' | 'STAFF'
+    email?: string | null
+    role: Role
     password_hash: string
   }): Promise<UserEntity> {
     const user = await prisma.user.create({
       data: {
         username: data.username,
         name: data.name,
+        email: data.email,
         role: data.role,
         password_hash: data.password_hash,
       },
     })
-    return {
-      id: user.id,
-      username: user.username,
-      name: user.name,
-      role: user.role,
-      password_hash: user.password_hash,
-      created_at: user.created_at,
-      updated_at: user.updated_at,
-    }
+    return this.toEntity(user)
+  }
+
+  async findUsers(role?: Role): Promise<UserEntity[]> {
+    const where: any = {}
+    if (role) where.role = role
+    const users = await prisma.user.findMany({
+      where,
+      orderBy: { name: 'asc' },
+    })
+    return users.map((u) => this.toEntity(u))
   }
 }

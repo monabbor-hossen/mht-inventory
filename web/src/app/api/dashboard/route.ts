@@ -1,5 +1,11 @@
-import { jsonResponse, errorResponse, handleCorsOptions } from '@/lib/cors'
-import { dashboardUseCases } from '@/application/use-cases'
+// ====================================================================
+// Presentation Layer: Real-time Stock Dashboard API Route
+// Aggregated views of current stock levels by SKU, Batch, and Location
+// ====================================================================
+
+import { container } from '@/infrastructure/container'
+import { handleApiError } from '@/presentation/errors/handleError'
+import { handleCorsOptions, jsonResponse } from '@/lib/cors'
 
 export async function OPTIONS() {
   return handleCorsOptions()
@@ -7,45 +13,37 @@ export async function OPTIONS() {
 
 export async function GET() {
   try {
-    const data = await dashboardUseCases.getDashboardData()
-
-    const formattedWeeklyFlow = data.weeklyFlow.map((f) => ({
-      day: f.day,
-      date: f.day,
-      stockIn: f.inbound,
-      stockOut: f.outbound,
-    }))
-
-    const formattedRecentActivity = data.recentLogs.map((log) => ({
-      key: `LOG-${log.id}`,
-      date: new Date(log.timestamp).toLocaleDateString(),
-      time: new Date(log.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      batch: log.target_entity,
-      product: log.description,
-      bags: 1,
-      by: (log as any).user?.name || 'Staff',
-      dir: log.action === 'CREATE' ? 'In' : 'Out',
-    }))
+    const dashboardData = await container.stockDashboardUseCase.execute()
+    const recentLogs = await container.auditTrailUseCase.getRecentLogs(15)
 
     return jsonResponse({
       success: true,
       data: {
         summary: {
-          totalStock: data.totalInStock,
-          inStockBags: data.totalInStock,
-          dispatchedToday: data.dispatchedToday,
-          expensesToday: data.totalExpenseToday,
-          dailyExpenses: data.totalExpenseToday,
-          damagedStock: data.totalDamageCount,
-          damageCount: data.totalDamageCount,
+          totalStock: dashboardData.kpis.totalInStock,
+          dispatchedToday: dashboardData.kpis.dispatchedToday,
+          expensesToday: dashboardData.kpis.todayExpense,
+          damagedStock: dashboardData.kpis.damagedTotal,
+          quarantineStock: dashboardData.kpis.quarantineTotal,
         },
-        weeklyFlow: formattedWeeklyFlow,
-        recentActivity: formattedRecentActivity,
-        recentBatches: data.recentBatches,
-        recentLogs: data.recentLogs,
+        stockBySku: dashboardData.stockBySku,
+        stockByBatch: dashboardData.stockByBatch,
+        stockByLocation: dashboardData.stockByLocation,
+        recentActivity: recentLogs.map((l) => ({
+          id: l.id,
+          key: `LOG-${l.id}`,
+          action: l.action,
+          target: l.target_entity,
+          entityId: l.entity_id,
+          description: l.description,
+          by: l.user?.name ?? 'Staff',
+          timestamp: l.timestamp,
+          time: new Date(l.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          date: new Date(l.timestamp).toLocaleDateString(),
+        })),
       },
     })
-  } catch (error: any) {
-    return errorResponse('Failed to fetch dashboard data', 500, error?.message)
+  } catch (error) {
+    return handleApiError(error)
   }
 }

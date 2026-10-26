@@ -1,27 +1,51 @@
 // ====================================================================
-// Application Layer: Use Cases Index & DI Assembly
+// Application Layer: Use Cases Export
 // ====================================================================
 
-export * from './InventoryUseCases'
+export * from './ProductUseCases'
+export * from './LocationUseCases'
+export * from './InboundUseCases'
+export * from './DispatchItemUseCase'
+export * from './CycleCountUseCases'
+export * from './StockDashboardUseCase'
+export * from './DamageStockUseCase'
 export * from './ExpenseUseCases'
+export * from './AuditTrailUseCase'
+export * from './InventoryUseCases'
 export * from './DashboardUseCases'
 export * from './OfflineSyncUseCase'
 
 import {
-  activityLogRepository,
+  productRepository,
+  locationRepository,
+  batchRepository,
+  barcodeRepository,
+  transactionRepository,
   damageRepository,
   expenseRepository,
-  inventoryRepository,
   userRepository,
+  activityLogRepository,
+  cycleCountRepository,
+  inventoryRepository,
 } from '@/infrastructure/database/repositories'
+
 import { InventoryUseCases } from './InventoryUseCases'
-import { ExpenseUseCases } from './ExpenseUseCases'
 import { DashboardUseCases } from './DashboardUseCases'
+import { ExpenseUseCases } from './ExpenseUseCases'
 import { OfflineSyncUseCase } from './OfflineSyncUseCase'
 
-// Dependency Injection: Wire Repositories into Use Cases
 export const inventoryUseCases = new InventoryUseCases(
-  inventoryRepository,
+  batchRepository,
+  barcodeRepository,
+  activityLogRepository,
+  damageRepository,
+  transactionRepository
+)
+
+export const dashboardUseCases = new DashboardUseCases(
+  batchRepository,
+  barcodeRepository,
+  expenseRepository,
   activityLogRepository,
   damageRepository
 )
@@ -31,16 +55,16 @@ export const expenseUseCases = new ExpenseUseCases(
   activityLogRepository
 )
 
-export const dashboardUseCases = new DashboardUseCases(
-  inventoryRepository,
-  expenseRepository,
-  activityLogRepository,
-  damageRepository
-)
-
 export const offlineSyncUseCase = new OfflineSyncUseCase(
   inventoryUseCases,
   expenseUseCases
 )
 
-export { userRepository, inventoryRepository, expenseRepository, damageRepository, activityLogRepository }
+export {
+  inventoryRepository,
+  activityLogRepository,
+  damageRepository,
+  expenseRepository,
+  userRepository,
+}
+

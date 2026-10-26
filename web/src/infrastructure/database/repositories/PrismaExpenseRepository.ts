@@ -4,37 +4,49 @@
 
 import { prisma } from '../prisma'
 import { IExpenseRepository } from '@/domain/repositories'
-import { ExpenseCategory, ExpenseEntity } from '@/domain/entities'
+import { ExpenseCategory, ExpenseEntity, UserEntity } from '@/domain/entities'
 import { Prisma } from '@prisma/client'
 
 export class PrismaExpenseRepository implements IExpenseRepository {
+  private mapExpense(e: any): ExpenseEntity {
+    return {
+      id: e.id,
+      category: e.category as ExpenseCategory,
+      amount: Number(e.amount),
+      title: e.title,
+      note: e.note,
+      receipt_url: e.receipt_url,
+      expense_date: e.expense_date,
+      created_by: e.created_by,
+      created_at: e.created_at,
+      updated_at: e.updated_at,
+      user: e.user ? (e.user as UserEntity) : null,
+    }
+  }
+
   async createExpense(data: {
     category: ExpenseCategory
     amount: number
+    title?: string | null
     note: string
     receipt_url?: string | null
+    expense_date?: Date
     created_by: number
   }): Promise<ExpenseEntity> {
     const expense = await prisma.expense.create({
       data: {
         category: data.category,
         amount: new Prisma.Decimal(data.amount),
+        title: data.title,
         note: data.note,
         receipt_url: data.receipt_url,
+        expense_date: data.expense_date ?? new Date(),
         created_by: data.created_by,
       },
+      include: { user: true },
     })
 
-    return {
-      id: expense.id,
-      category: expense.category,
-      amount: Number(expense.amount),
-      note: expense.note,
-      receipt_url: expense.receipt_url,
-      created_by: expense.created_by,
-      created_at: expense.created_at,
-      updated_at: expense.updated_at,
-    }
+    return this.mapExpense(expense)
   }
 
   async findExpenses(filter?: {
@@ -49,32 +61,18 @@ export class PrismaExpenseRepository implements IExpenseRepository {
     }
 
     if (filter?.startDate || filter?.endDate) {
-      where.created_at = {}
-      if (filter.startDate) where.created_at.gte = filter.startDate
-      if (filter.endDate) where.created_at.lte = filter.endDate
+      where.expense_date = {}
+      if (filter.startDate) where.expense_date.gte = filter.startDate
+      if (filter.endDate) where.expense_date.lte = filter.endDate
     }
 
     const expenses = await prisma.expense.findMany({
       where,
-      orderBy: { created_at: 'desc' },
-      include: {
-        user: {
-          select: { name: true, role: true },
-        },
-      },
+      orderBy: { expense_date: 'desc' },
+      include: { user: true },
     })
 
-    return expenses.map((e) => ({
-      id: e.id,
-      category: e.category,
-      amount: Number(e.amount),
-      note: e.note,
-      receipt_url: e.receipt_url,
-      created_by: e.created_by,
-      created_at: e.created_at,
-      updated_at: e.updated_at,
-      user: e.user,
-    }))
+    return expenses.map((e) => this.mapExpense(e))
   }
 
   async getTodayTotalExpense(): Promise<number> {
@@ -86,7 +84,7 @@ export class PrismaExpenseRepository implements IExpenseRepository {
         amount: true,
       },
       where: {
-        created_at: { gte: startOfToday },
+        expense_date: { gte: startOfToday },
       },
     })
 

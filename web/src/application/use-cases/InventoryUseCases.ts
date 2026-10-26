@@ -1,11 +1,13 @@
 // ====================================================================
-// Application Layer: Inventory Use Cases
+// Application Layer: Inventory Use Cases (Enterprise WMS)
 // ====================================================================
 
 import {
   IActivityLogRepository,
+  IBarcodeRepository,
+  IBatchRepository,
   IDamageRepository,
-  IInventoryRepository,
+  IInventoryTransactionRepository,
 } from '@/domain/repositories'
 import {
   BarcodeAlreadyScannedError,
@@ -25,9 +27,11 @@ import { BarcodeItemEntity, BatchEntity, DamageRecordEntity } from '@/domain/ent
 
 export class InventoryUseCases {
   constructor(
-    private readonly inventoryRepo: IInventoryRepository,
+    private readonly batchRepo: IBatchRepository,
+    private readonly barcodeRepo: IBarcodeRepository,
     private readonly activityLogRepo: IActivityLogRepository,
-    private readonly damageRepo?: IDamageRepository
+    private readonly damageRepo?: IDamageRepository,
+    private readonly transactionRepo?: IInventoryTransactionRepository
   ) {}
 
   /**
@@ -67,21 +71,26 @@ export class InventoryUseCases {
     }
 
     const batchNumber = this.generateBatchNumber()
-    const batch = await this.inventoryRepo.createBatch({
+    const batch = await this.batchRepo.createBatch({
       batch_number: batchNumber,
       supplier_name: null,
       category: null,
-      total_quantity: dto.quantity,
+      expected_quantity: dto.quantity,
+      received_quantity: dto.quantity,
       status: 'DRAFT',
     })
 
     const barcodeStrings = this.generateBarcodeStrings(batchNumber, dto.quantity)
-    const barcodes = await this.inventoryRepo.createBarcodes(batch.id, barcodeStrings)
+    const barcodes = await this.barcodeRepo.createBarcodes(
+      batch.id,
+      barcodeStrings.map((str) => ({ barcode_string: str }))
+    )
 
     await this.activityLogRepo.log({
       user_id: dto.userId ?? null,
       action: 'CREATE',
       target_entity: 'Batch',
+      entity_id: String(batch.id),
       description: `Blind receipt created batch "${batchNumber}" with ${dto.quantity} barcodes in DRAFT status`,
     })
 
@@ -104,21 +113,26 @@ export class InventoryUseCases {
     }
 
     const batchNumber = dto.batch_number?.trim() || this.generateBatchNumber()
-    const batch = await this.inventoryRepo.createBatch({
+    const batch = await this.batchRepo.createBatch({
       batch_number: batchNumber,
       supplier_name: dto.supplier_name.trim(),
       category: dto.category?.trim() || 'General',
-      total_quantity: dto.quantity,
+      expected_quantity: dto.quantity,
+      received_quantity: dto.quantity,
       status: 'COMPLETED',
     })
 
     const barcodeStrings = this.generateBarcodeStrings(batchNumber, dto.quantity)
-    const barcodes = await this.inventoryRepo.createBarcodes(batch.id, barcodeStrings)
+    const barcodes = await this.barcodeRepo.createBarcodes(
+      batch.id,
+      barcodeStrings.map((str) => ({ barcode_string: str }))
+    )
 
     await this.activityLogRepo.log({
       user_id: dto.userId ?? null,
       action: 'CREATE',
       target_entity: 'Batch',
+      entity_id: String(batch.id),
       description: `Advance entry batch "${batchNumber}" created for supplier "${dto.supplier_name}" with ${dto.quantity} barcodes`,
     })
 
@@ -130,12 +144,12 @@ export class InventoryUseCases {
    * Updates a DRAFT batch with Supplier and Category and moves it to COMPLETED
    */
   async updateBatchMetadata(dto: UpdateBatchMetadataDTO): Promise<BatchEntity> {
-    const batch = await this.inventoryRepo.findBatchById(dto.batchId)
+    const batch = await this.batchRepo.findById(dto.batchId)
     if (!batch) {
       throw new BatchNotFoundError(dto.batchId)
     }
 
-    const updated = await this.inventoryRepo.updateBatch(dto.batchId, {
+    const updated = await this.batchRepo.updateBatch(dto.batchId, {
       supplier_name: dto.supplier_name ?? batch.supplier_name,
       category: dto.category ?? batch.category,
       status: dto.status ?? 'COMPLETED',
@@ -145,6 +159,7 @@ export class InventoryUseCases {
       user_id: dto.userId ?? null,
       action: 'UPDATE',
       target_entity: 'Batch',
+      entity_id: String(batch.id),
       description: `Updated metadata for batch "${batch.batch_number}" (status: ${updated.status})`,
     })
 
@@ -159,37 +174,41 @@ export class InventoryUseCases {
     addedBarcodes?: BarcodeItemEntity[]
     voidedCount?: number
   }> {
-    const batch = await this.inventoryRepo.findBatchById(dto.batchId)
+    const batch = await this.batchRepo.findById(dto.batchId)
     if (!batch) {
       throw new BatchNotFoundError(dto.batchId)
     }
 
     let addedBarcodes: BarcodeItemEntity[] = []
     let voidedCount = 0
-    let newQuantity = batch.total_quantity
+    let newQuantity = batch.received_quantity
 
     // 1. Over-printing: generate additional barcodes
     if (dto.addQuantity && dto.addQuantity > 0) {
-      const existingCount = batch.barcodes?.length ?? batch.total_quantity
+      const existingCount = batch.barcodes?.length ?? batch.received_quantity
       const newStrings = this.generateBarcodeStrings(batch.batch_number, dto.addQuantity, existingCount)
-      addedBarcodes = await this.inventoryRepo.createBarcodes(batch.id, newStrings)
+      addedBarcodes = await this.barcodeRepo.createBarcodes(
+        batch.id,
+        newStrings.map((str) => ({ barcode_string: str }))
+      )
       newQuantity += dto.addQuantity
     }
 
     // 2. Under-printing: void specific barcodes
     if (dto.voidBarcodes && dto.voidBarcodes.length > 0) {
-      voidedCount = await this.inventoryRepo.voidBarcodes(dto.voidBarcodes)
+      voidedCount = await this.barcodeRepo.voidBarcodes(dto.voidBarcodes)
       newQuantity = Math.max(0, newQuantity - voidedCount)
     }
 
-    const updatedBatch = await this.inventoryRepo.updateBatch(dto.batchId, {
-      total_quantity: newQuantity,
+    const updatedBatch = await this.batchRepo.updateBatch(dto.batchId, {
+      received_quantity: newQuantity,
     })
 
     await this.activityLogRepo.log({
       user_id: dto.userId ?? null,
       action: 'UPDATE',
       target_entity: 'Batch',
+      entity_id: String(batch.id),
       description: `Adjusted batch "${batch.batch_number}": added ${addedBarcodes.length}, voided ${voidedCount}`,
     })
 
@@ -210,7 +229,7 @@ export class InventoryUseCases {
       throw new ValidationError('Barcode string is required')
     }
 
-    const item = await this.inventoryRepo.findBarcodeByString(barcodeStr)
+    const item = await this.barcodeRepo.findByString(barcodeStr)
     if (!item) {
       throw new BarcodeNotFoundError(barcodeStr)
     }
@@ -219,17 +238,32 @@ export class InventoryUseCases {
       throw new BarcodeAlreadyScannedError(barcodeStr, item.status)
     }
 
-    const dispatched = await this.inventoryRepo.updateBarcodeStatus(
+    const dispatched = await this.barcodeRepo.updateStatus(
       barcodeStr,
       'DISPATCHED',
-      dto.userId ?? null,
-      new Date()
+      {
+        scanned_by_user_id: dto.userId ?? null,
+        dispatched_at: new Date(),
+      }
     )
+
+    if (this.transactionRepo) {
+      await this.transactionRepo.recordTransaction({
+        barcode_item_id: item.id,
+        product_id: item.product_id,
+        batch_id: item.batch_id,
+        movement_type: 'OUT',
+        quantity: 1,
+        user_id: dto.userId ?? null,
+        reference_number: `DISPATCH-${barcodeStr}`,
+      })
+    }
 
     await this.activityLogRepo.log({
       user_id: dto.userId ?? null,
-      action: 'SCAN',
+      action: 'DISPATCH',
       target_entity: 'BarcodeItem',
+      entity_id: barcodeStr,
       description: `Barcode "${barcodeStr}" marked as DISPATCHED (Batch: ${item.batch.batch_number})`,
     })
 
@@ -249,25 +283,42 @@ export class InventoryUseCases {
       throw new ValidationError('Barcode string is required')
     }
 
-    const item = await this.inventoryRepo.findBarcodeByString(barcodeStr)
+    const item = await this.barcodeRepo.findByString(barcodeStr)
     if (!item) {
       throw new BarcodeNotFoundError(barcodeStr)
     }
 
     // Mark barcode item as DAMAGED
-    await this.inventoryRepo.updateBarcodeStatus(barcodeStr, 'DAMAGED', dto.userId)
+    await this.barcodeRepo.updateStatus(barcodeStr, 'DAMAGED', {
+      scanned_by_user_id: dto.userId,
+    })
 
     const damageRecord = await this.damageRepo.createDamageRecord({
       barcode_id: item.id,
       reason: dto.reason,
       photo_url: dto.photo_url ?? null,
+      notes: null,
       logged_by: dto.userId,
     })
+
+    if (this.transactionRepo) {
+      await this.transactionRepo.recordTransaction({
+        barcode_item_id: item.id,
+        product_id: item.product_id,
+        batch_id: item.batch_id,
+        movement_type: 'ADJUSTMENT',
+        quantity: 1,
+        user_id: dto.userId,
+        reference_number: `DAMAGE-${damageRecord.id}`,
+        notes: `Damaged item: ${dto.reason}`,
+      })
+    }
 
     await this.activityLogRepo.log({
       user_id: dto.userId,
       action: 'SCAN',
       target_entity: 'DamageRecord',
+      entity_id: String(damageRecord.id),
       description: `Barcode "${barcodeStr}" logged as DAMAGED (${dto.reason})`,
     })
 

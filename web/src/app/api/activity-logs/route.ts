@@ -1,6 +1,11 @@
+// ====================================================================
+// Presentation Layer: Activity Audit Logs API Route
+// ====================================================================
+
 import { NextRequest } from 'next/server'
-import { jsonResponse, errorResponse, handleCorsOptions } from '@/lib/cors'
-import { activityLogRepository } from '@/application/use-cases'
+import { container } from '@/infrastructure/container'
+import { handleApiError } from '@/presentation/errors/handleError'
+import { handleCorsOptions, jsonResponse } from '@/lib/cors'
 
 export async function OPTIONS() {
   return handleCorsOptions()
@@ -11,28 +16,25 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url)
     const limit = parseInt(searchParams.get('limit') || '50', 10)
 
-    const logs = await activityLogRepository.getRecentLogs(limit)
-
-    const formattedLogs = logs.map((log) => ({
-      id: log.id,
-      action_type: log.action,
-      action: log.action,
-      target_id: log.target_entity,
-      target_entity: log.target_entity,
-      description: log.description,
-      user_id: log.user_id,
-      user_name: (log as any).user?.name || 'Staff',
-      user: (log as any).user?.name || 'Staff',
-      created_at: log.timestamp,
-      timestamp: log.timestamp,
-    }))
+    const logs = await container.auditTrailUseCase.getRecentLogs(limit)
 
     return jsonResponse({
       success: true,
-      data: formattedLogs,
-      count: formattedLogs.length,
+      data: logs.map((log: any) => ({
+        id: log.id,
+        action: log.action,
+        target_entity: log.target_entity,
+        entity_id: log.entity_id,
+        description: log.description,
+        user_id: log.user_id,
+        user_name: log.user?.name || 'Staff',
+        timestamp: log.timestamp,
+        date: new Date(log.timestamp).toLocaleDateString(),
+        time: new Date(log.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      })),
+      count: logs.length,
     })
-  } catch (error: any) {
-    return errorResponse('Failed to fetch activity logs', 500, error?.message)
+  } catch (error) {
+    return handleApiError(error)
   }
 }

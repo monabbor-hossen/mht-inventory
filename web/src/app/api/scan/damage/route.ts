@@ -1,7 +1,11 @@
+// ====================================================================
+// Presentation Layer: Scan Damage API Endpoint
+// ====================================================================
+
 import { NextRequest } from 'next/server'
-import { jsonResponse, errorResponse, handleCorsOptions } from '@/lib/cors'
-import { inventoryUseCases } from '@/application/use-cases'
-import { AppError } from '@/domain/errors'
+import { container } from '@/infrastructure/container'
+import { handleApiError } from '@/presentation/errors/handleError'
+import { handleCorsOptions, jsonResponse } from '@/lib/cors'
 import { DamageReason } from '@/domain/entities'
 
 export async function OPTIONS() {
@@ -14,18 +18,20 @@ export async function POST(request: NextRequest) {
     const barcode = body.barcode || body.barcode_string || body.code
 
     if (!barcode) {
-      return errorResponse('Barcode string is required', 400)
+      return jsonResponse({ success: false, error: 'Barcode string is required' }, 400)
     }
 
     const reason = (body.reason as DamageReason) || 'Torn'
-    const photo_url = body.photo_url || body.photoUrl || null
-    const userId = body.userId ? Number(body.userId) : 1
+    const photoUrl = body.photo_url || body.photoUrl || null
+    const userId = body.userId || body.user_id ? Number(body.userId || body.user_id) : 1
+    const notes = body.notes
 
-    const damageRecord = await inventoryUseCases.recordDamage({
+    const damageRecord = await container.damageUseCases.recordDamage({
       barcode_string: String(barcode).trim(),
       reason,
-      photo_url,
-      userId,
+      photo_url: photoUrl,
+      notes,
+      logged_by: userId,
     })
 
     return jsonResponse({
@@ -33,10 +39,7 @@ export async function POST(request: NextRequest) {
       message: `Barcode marked as DAMAGED (${reason})`,
       data: damageRecord,
     })
-  } catch (error: any) {
-    if (error instanceof AppError) {
-      return errorResponse(error.message, error.statusCode)
-    }
-    return errorResponse('Failed to record damage', 500, error?.message)
+  } catch (error) {
+    return handleApiError(error)
   }
 }

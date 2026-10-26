@@ -1,164 +1,75 @@
-import { NextRequest } from 'next/server'
-import { jsonResponse, errorResponse, handleCorsOptions } from '@/lib/cors'
-import {
-  activityLogRepository,
-  inventoryRepository,
-  inventoryUseCases,
-} from '@/application/use-cases'
-import { AppError } from '@/domain/errors'
-import { prisma } from '@/infrastructure/database/prisma'
+// ====================================================================
+// Presentation Layer: Smart Scanning & Dispatch API Route
+// High-performance endpoint for Flutter mobile scanner & Web interface
+// ====================================================================
+
+import { NextRequest, NextResponse } from 'next/server'
+import { container } from '@/infrastructure/container'
+import { handleApiError } from '@/presentation/errors/handleError'
+import { handleCorsOptions, jsonResponse } from '@/lib/cors'
+import { BarcodeNotFoundError } from '@/domain/errors'
 
 export async function OPTIONS() {
   return handleCorsOptions()
 }
 
-// GET: List recent scan activities
+// GET: Lookup barcode item information without dispatching (pre-scan preview)
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url)
-    const limit = parseInt(searchParams.get('limit') || '50', 10)
+    const barcodeString = searchParams.get('barcode') || searchParams.get('code')
 
-    const logs = await activityLogRepository.getRecentLogs(limit)
+    if (!barcodeString) {
+      // Return recent scan / dispatch activities
+      const logs = await container.auditRepo.getRecentLogs(25)
+      return jsonResponse({ success: true, data: logs })
+    }
 
-    const formattedScans = logs.map((log) => ({
-      id: log.id,
-      key: `SCAN-${log.id}`,
-      barcode: log.target_entity,
-      date: new Date(log.timestamp).toLocaleDateString(),
-      time: new Date(log.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      batch: log.target_entity,
-      product: log.description,
-      bags: 1,
-      weight: '25 Kg',
-      zone: 'Zone A',
-      by: (log as any).user?.name || 'Staff',
-      dir: log.action === 'CREATE' ? 'In' : 'Out',
-      created_at: log.timestamp,
-    }))
+    const item = await container.barcodeRepo.findByString(barcodeString)
+    if (!item) {
+      throw new BarcodeNotFoundError(barcodeString)
+    }
 
     return jsonResponse({
       success: true,
-      data: formattedScans,
-      count: formattedScans.length,
+      data: item,
     })
-  } catch (error: any) {
-    return errorResponse('Failed to fetch scans', 500, error?.message)
+  } catch (error) {
+    return handleApiError(error)
   }
 }
 
-// POST: Handles single or batch scan (Dispatch / Damage) with FIFO check
+// POST: Execute smart dispatch scan with strict FIFO validation
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const items = Array.isArray(body) ? body : [body]
-    const results = []
+    const barcodeString = body.barcode || body.barcode_string || body.code
+    const userId = body.user_id ? Number(body.user_id) : undefined
+    const referenceOrder = body.order_no || body.reference_order_no
+    const overrideFifo = Boolean(body.override_fifo)
+    const notes = body.notes
 
-    for (const item of items) {
-      const barcode = item.barcode || item.barcode_string || item.uid
-      const dir = item.dir || item.direction || 'Out'
-      const userId = item.userId ? Number(item.userId) : 1
-
-      if (!barcode && item.batch) {
-        // Fallback for batch-level scan
-        results.push({
-          success: true,
-          batch: item.batch,
-          message: 'Batch scan recorded',
-        })
-        continue
-      }
-
-      if (!barcode) {
-        results.push({
-          success: false,
-          error: 'Barcode string is required',
-        })
-        continue
-      }
-
-      const barcodeStr = String(barcode).trim()
-
-      // 1. If direction is Damaged:
-      if (dir === 'Damaged') {
-        try {
-          const damageRecord = await inventoryUseCases.recordDamage({
-            barcode_string: barcodeStr,
-            reason: item.reason || 'Torn',
-            photo_url: item.photo_url || null,
-            userId,
-          })
-          results.push({
-            success: true,
-            barcode: barcodeStr,
-            status: 'DAMAGED',
-            data: damageRecord,
-          })
-        } catch (err: any) {
-          results.push({
-            success: false,
-            barcode: barcodeStr,
-            error: err.message,
-          })
-        }
-        continue
-      }
-
-      // 2. FIFO Check: check if older batch of the same category has remaining items in stock
-      let fifoAlert = null
-      const barcodeItem = await inventoryRepository.findBarcodeByString(barcodeStr)
-      if (barcodeItem && barcodeItem.batch) {
-        const olderBatch = await prisma.batch.findFirst({
-          where: {
-            id: { lt: barcodeItem.batch.id },
-            category: barcodeItem.batch.category,
-            barcodes: {
-              some: { status: 'IN_STOCK' },
-            },
-          },
-          orderBy: { id: 'asc' },
-        })
-
-        if (olderBatch) {
-          fifoAlert = {
-            olderBatch: olderBatch.batch_number,
-            message: `FIFO Notice: Older batch "${olderBatch.batch_number}" still has in-stock items.`,
-          }
-        }
-      }
-
-      // 3. Dispatch Scan
-      try {
-        const dispatched = await inventoryUseCases.dispatchScan({
-          barcode_string: barcodeStr,
-          userId,
-        })
-        results.push({
-          success: true,
-          barcode: barcodeStr,
-          status: 'DISPATCHED',
-          fifoAlert,
-          data: dispatched,
-        })
-      } catch (err: any) {
-        results.push({
-          success: false,
-          barcode: barcodeStr,
-          error: err.message,
-        })
-      }
+    if (!barcodeString) {
+      return NextResponse.json(
+        { success: false, error: 'Barcode string is required.' },
+        { status: 400 }
+      )
     }
 
-    const firstResult = results[0]
-    return jsonResponse({
-      success: results.some((r) => r.success),
-      results,
-      data: firstResult,
-      fifoAlert: firstResult?.fifoAlert ?? null,
+    const result = await container.dispatchUseCase.execute({
+      barcode_string: barcodeString,
+      user_id: userId,
+      reference_order_no: referenceOrder,
+      notes,
+      override_fifo: overrideFifo,
     })
-  } catch (error: any) {
-    if (error instanceof AppError) {
-      return errorResponse(error.message, error.statusCode)
-    }
-    return errorResponse('Failed to process scan', 500, error?.message)
+
+    return jsonResponse({
+      success: true,
+      message: result.message,
+      data: result.item,
+    })
+  } catch (error) {
+    return handleApiError(error)
   }
 }

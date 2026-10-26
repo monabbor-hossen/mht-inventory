@@ -1,12 +1,13 @@
 // ====================================================================
-// Application Layer: Dashboard Use Cases
+// Application Layer: Dashboard Use Cases (Enterprise WMS)
 // ====================================================================
 
 import {
   IActivityLogRepository,
+  IBarcodeRepository,
+  IBatchRepository,
   IDamageRepository,
   IExpenseRepository,
-  IInventoryRepository,
 } from '@/domain/repositories'
 import { ActivityLogEntity, BatchEntity } from '@/domain/entities'
 
@@ -22,7 +23,8 @@ export interface DashboardMetrics {
 
 export class DashboardUseCases {
   constructor(
-    private readonly inventoryRepo: IInventoryRepository,
+    private readonly batchRepo: IBatchRepository,
+    private readonly barcodeRepo: IBarcodeRepository,
     private readonly expenseRepo: IExpenseRepository,
     private readonly activityLogRepo: IActivityLogRepository,
     private readonly damageRepo?: IDamageRepository
@@ -30,10 +32,10 @@ export class DashboardUseCases {
 
   async getDashboardData(): Promise<DashboardMetrics> {
     const [stockSummary, todayExpense, recentLogs, recentBatches, damages] = await Promise.all([
-      this.inventoryRepo.getStockSummary(),
+      this.barcodeRepo.getStockDashboardSummary(),
       this.expenseRepo.getTodayTotalExpense(),
       this.activityLogRepo.getRecentLogs(15),
-      this.inventoryRepo.findBatches({ take: 10 }),
+      this.batchRepo.findBatches({ take: 10 }),
       this.damageRepo ? this.damageRepo.findDamageRecords(100) : Promise.resolve([]),
     ])
 
