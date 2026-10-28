@@ -206,6 +206,61 @@ export class InboundUseCases {
     return { batch: updatedBatch!, affectedCount }
   }
 
+  /**
+   * Module A: Late Metadata Binding
+   * Promotes a DRAFT batch to COMPLETED, associates Product/Supplier/Category/Location,
+   * and transitions draft barcodes to IN_STOCK.
+   */
+  async bindLateMetadata(dto: {
+    batch_id: number
+    supplier_name?: string
+    category?: string
+    product_id?: number
+    target_location_id?: number
+    notes?: string
+    user_id?: number
+  }): Promise<BatchEntity> {
+    const batch = await this.batchRepo.findById(dto.batch_id)
+    if (!batch) {
+      throw new BatchNotFoundError(dto.batch_id)
+    }
+
+    let product = null
+    if (dto.product_id) {
+      product = await this.productRepo.findById(dto.product_id)
+      if (!product) {
+        throw new ProductNotFoundError(dto.product_id)
+      }
+    }
+
+    await this.batchRepo.updateBatch(dto.batch_id, {
+      supplier_name: dto.supplier_name ?? batch.supplier_name,
+      category: dto.category ?? product?.category ?? batch.category,
+      product_id: dto.product_id ?? batch.product_id,
+      notes: dto.notes ?? batch.notes,
+      status: 'COMPLETED',
+    })
+
+    // Transition all barcodes of this batch to IN_STOCK, and update product/location
+    await this.barcodeRepo.updateBatchItems(dto.batch_id, {
+      status: 'IN_STOCK',
+      product_id: dto.product_id ?? batch.product_id,
+      location_id: dto.target_location_id,
+    })
+
+    // Record audit log
+    await this.auditRepo.log({
+      user_id: dto.user_id,
+      action: 'UPDATE',
+      target_entity: 'BATCH',
+      entity_id: batch.batch_number,
+      description: `Late metadata bound to batch ${batch.batch_number}: supplier "${dto.supplier_name || 'N/A'}", category "${dto.category || 'N/A'}", product "${product?.name || 'N/A'}"`,
+    })
+
+    const finalBatch = await this.batchRepo.findById(dto.batch_id)
+    return finalBatch!
+  }
+
   async listBatches(options?: { status?: BatchStatus; skip?: number; take?: number }): Promise<BatchEntity[]> {
     return this.batchRepo.findBatches(options)
   }

@@ -68,3 +68,31 @@ export async function POST(request: NextRequest) {
     return handleApiError(error)
   }
 }
+
+export async function PUT(request: NextRequest) {
+  try {
+    const body = await request.json()
+    const batchId = Number(body.batch_id || body.batchId || body.id)
+    if (!batchId) {
+      return jsonResponse({ success: false, error: 'batch_id is required' }, 400)
+    }
+
+    const updated = await container.inboundUseCases.bindLateMetadata({
+      batch_id: batchId,
+      supplier_name: body.supplier_name || body.supplier,
+      category: body.category,
+      product_id: body.product_id || body.productId ? Number(body.product_id || body.productId) : undefined,
+      target_location_id: body.target_location_id || body.locationId ? Number(body.target_location_id || body.locationId) : undefined,
+      notes: body.notes,
+      user_id: body.user_id || body.userId ? Number(body.user_id || body.userId) : undefined,
+    })
+
+    return jsonResponse({
+      success: true,
+      message: `Late metadata bound successfully to batch ${updated.batch_number}`,
+      data: updated,
+    })
+  } catch (error) {
+    return handleApiError(error)
+  }
+}

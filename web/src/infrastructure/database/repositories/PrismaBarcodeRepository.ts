@@ -195,6 +195,26 @@ export class PrismaBarcodeRepository implements IBarcodeRepository {
     return items.map((i) => this.toEntity(i))
   }
 
+  async updateBatchItems(
+    batch_id: number,
+    data: {
+      status?: BarcodeStatus
+      product_id?: number | null
+      location_id?: number | null
+    }
+  ): Promise<number> {
+    const updateData: any = {}
+    if (data.status !== undefined) updateData.status = data.status
+    if (data.product_id !== undefined) updateData.product_id = data.product_id
+    if (data.location_id !== undefined) updateData.location_id = data.location_id
+
+    const res = await prisma.barcodeItem.updateMany({
+      where: { batch_id },
+      data: updateData,
+    })
+    return res.count
+  }
+
   async findItemsByBatch(batch_id: number): Promise<BarcodeItemEntity[]> {
     const items = await prisma.barcodeItem.findMany({
       where: { batch_id },

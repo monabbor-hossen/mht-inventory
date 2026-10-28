@@ -134,13 +134,23 @@ export default function Home() {
 
   // Form states
   const [blindQty, setBlindQty] = useState(50)
+  const [blindLocationId, setBlindLocationId] = useState<string>('')
+
   const [advSupplier, setAdvSupplier] = useState('')
   const [advCategory, setAdvCategory] = useState('Rice & Grain')
   const [advQty, setAdvQty] = useState(100)
+  const [advProductId, setAdvProductId] = useState<string>('')
+  const [advLocationId, setAdvLocationId] = useState<string>('')
 
   const [lateBatch, setLateBatch] = useState<any>(null)
   const [lateSupplier, setLateSupplier] = useState('')
   const [lateCategory, setLateCategory] = useState('Rice & Grain')
+  const [lateProductId, setLateProductId] = useState<string>('')
+  const [lateLocationId, setLateLocationId] = useState<string>('')
+
+  // Product & Location catalogs for form selectors
+  const [productsList, setProductsList] = useState<any[]>([])
+  const [locationsList, setLocationsList] = useState<any[]>([])
 
   const [adjustBatch, setAdjustBatch] = useState<any>(null)
   const [adjustDelta, setAdjustDelta] = useState(10)
@@ -183,11 +193,13 @@ export default function Home() {
   const refreshAllData = async () => {
     try {
       setLoading(true)
-      const [dashRes, invRes, expRes, dmgRes] = await Promise.all([
+      const [dashRes, invRes, expRes, dmgRes, prodRes, locRes] = await Promise.all([
         fetch('/api/dashboard').then((r) => r.json()),
         fetch('/api/inventory?limit=50').then((r) => r.json()),
         fetch('/api/expenses?limit=100').then((r) => r.json()),
         fetch('/api/damages?limit=50').then((r) => r.json()),
+        fetch('/api/products').then((r) => r.json()),
+        fetch('/api/locations').then((r) => r.json()),
       ])
 
       if (dashRes.success && dashRes.data) {
@@ -213,6 +225,14 @@ export default function Home() {
       if (dmgRes.success && Array.isArray(dmgRes.data)) {
         setDamages(dmgRes.data)
       }
+
+      if (prodRes.success && Array.isArray(prodRes.data)) {
+        setProductsList(prodRes.data)
+      }
+
+      if (locRes.success && Array.isArray(locRes.data)) {
+        setLocationsList(locRes.data)
+      }
     } catch (err: any) {
       console.error('Data refresh error:', err)
     } finally {
@@ -231,11 +251,15 @@ export default function Home() {
       const res = await fetch('/api/inventory', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mode: 'blind', quantity: blindQty }),
+        body: JSON.stringify({
+          mode: 'blind',
+          quantity: blindQty,
+          target_location_id: blindLocationId ? Number(blindLocationId) : undefined,
+        }),
       })
       const data = await res.json()
       if (data.success) {
-        setToast({ message: `Quick blind receipt created: ${data.data.batch} (${data.data.totalQuantity} barcodes)`, tone: 'success' })
+        setToast({ message: `Quick blind receipt created: ${data.data.batch} (${data.data.total_quantity || data.data.bags_count} barcodes)`, tone: 'success' })
         setShowBlindModal(false)
         setPreviewBarcodes(data.data.barcodes || [])
         setActiveBarcode(data.data.barcodes?.[0] || data.data.batch)
@@ -261,13 +285,17 @@ export default function Home() {
           supplier_name: advSupplier,
           category: advCategory,
           quantity: advQty,
+          product_id: advProductId ? Number(advProductId) : undefined,
+          target_location_id: advLocationId ? Number(advLocationId) : undefined,
         }),
       })
       const data = await res.json()
       if (data.success) {
-        setToast({ message: `Advance entry batch ${data.data.batch} generated with ${data.data.totalQuantity} barcodes`, tone: 'success' })
+        setToast({ message: `Advance entry batch ${data.data.batch} generated with ${data.data.total_quantity || data.data.bags_count} barcodes`, tone: 'success' })
         setShowAdvanceModal(false)
         setAdvSupplier('')
+        setAdvProductId('')
+        setAdvLocationId('')
         setPreviewBarcodes(data.data.barcodes || [])
         setActiveBarcode(data.data.barcodes?.[0] || data.data.batch)
         setSelectedBatch({ batch_number: data.data.batch, category: advCategory })
@@ -293,12 +321,16 @@ export default function Home() {
           batch: lateBatch.batch_number,
           supplier: lateSupplier,
           category: lateCategory,
+          productId: lateProductId ? Number(lateProductId) : undefined,
+          locationId: lateLocationId ? Number(lateLocationId) : undefined,
         }),
       })
       const data = await res.json()
       if (data.success) {
         setToast({ message: `Metadata successfully bound to ${lateBatch.batch_number}`, tone: 'success' })
         setShowLateBindingModal(false)
+        setLateProductId('')
+        setLateLocationId('')
         refreshAllData()
       } else {
         setToast({ message: data.error || 'Failed to bind metadata', tone: 'error' })
@@ -1620,6 +1652,20 @@ export default function Home() {
                   required
                 />
               </Field>
+              <Field label="Target Warehouse Bin (Optional)">
+                <select
+                  value={blindLocationId}
+                  onChange={(e) => setBlindLocationId(e.target.value)}
+                  className={inputCls()}
+                >
+                  <option value="">Default Staging Bay</option>
+                  {locationsList.map((loc) => (
+                    <option key={loc.id} value={loc.id}>
+                      {loc.code} ({loc.zone})
+                    </option>
+                  ))}
+                </select>
+              </Field>
               <div className="flex justify-end gap-2 pt-2">
                 <Button variant="outlined" type="button" onClick={() => setShowBlindModal(false)}>
                   Cancel
@@ -1646,6 +1692,26 @@ export default function Home() {
               </button>
             </div>
             <form onSubmit={handleAdvanceEntry} className="mt-4 space-y-4">
+              <Field label="Link to Catalog Product (Optional)">
+                <select
+                  value={advProductId}
+                  onChange={(e) => {
+                    setAdvProductId(e.target.value)
+                    const found = productsList.find((p) => String(p.id) === e.target.value)
+                    if (found) {
+                      setAdvCategory(found.category)
+                    }
+                  }}
+                  className={inputCls()}
+                >
+                  <option value="">None / Custom Entry</option>
+                  {productsList.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.sku} - {p.name}
+                    </option>
+                  ))}
+                </select>
+              </Field>
               <Field label="Supplier Name">
                 <input
                   type="text"
@@ -1667,6 +1733,20 @@ export default function Home() {
                   <option value="Pulses & Lentils">Pulses & Lentils</option>
                   <option value="Sugar & Sweeteners">Sugar & Sweeteners</option>
                   <option value="General Cargo">General Cargo</option>
+                </select>
+              </Field>
+              <Field label="Target Warehouse Location">
+                <select
+                  value={advLocationId}
+                  onChange={(e) => setAdvLocationId(e.target.value)}
+                  className={inputCls()}
+                >
+                  <option value="">Default Staging Bay</option>
+                  {locationsList.map((loc) => (
+                    <option key={loc.id} value={loc.id}>
+                      {loc.code} ({loc.zone})
+                    </option>
+                  ))}
                 </select>
               </Field>
               <Field label="Quantity (Number of Sacks)">
@@ -1704,6 +1784,26 @@ export default function Home() {
               <p className="text-xs text-muted">
                 Assign supplier and category details to draft batch <strong className="text-ink">{lateBatch.batch_number}</strong> to promote it to COMPLETED.
               </p>
+              <Field label="Link to Master Product Catalog">
+                <select
+                  value={lateProductId}
+                  onChange={(e) => {
+                    setLateProductId(e.target.value)
+                    const found = productsList.find((p) => String(p.id) === e.target.value)
+                    if (found) {
+                      setLateCategory(found.category)
+                    }
+                  }}
+                  className={inputCls()}
+                >
+                  <option value="">Keep current unassigned / Custom</option>
+                  {productsList.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.sku} - {p.name}
+                    </option>
+                  ))}
+                </select>
+              </Field>
               <Field label="Supplier Name">
                 <input
                   type="text"
@@ -1725,6 +1825,20 @@ export default function Home() {
                   <option value="Pulses & Lentils">Pulses & Lentils</option>
                   <option value="Sugar & Sweeteners">Sugar & Sweeteners</option>
                   <option value="General Cargo">General Cargo</option>
+                </select>
+              </Field>
+              <Field label="Target Warehouse Location Bin">
+                <select
+                  value={lateLocationId}
+                  onChange={(e) => setLateLocationId(e.target.value)}
+                  className={inputCls()}
+                >
+                  <option value="">Keep current location</option>
+                  {locationsList.map((loc) => (
+                    <option key={loc.id} value={loc.id}>
+                      {loc.code} ({loc.zone})
+                    </option>
+                  ))}
                 </select>
               </Field>
               <div className="flex justify-end gap-2 pt-2">

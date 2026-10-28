@@ -87,7 +87,7 @@ export interface IBatchRepository {
   findBatches(options?: { status?: BatchStatus; skip?: number; take?: number; productId?: number }): Promise<BatchEntity[]>
   updateBatch(
     id: number,
-    data: Partial<Pick<BatchEntity, 'supplier_name' | 'category' | 'status' | 'expected_quantity' | 'received_quantity' | 'notes'>>
+    data: Partial<Pick<BatchEntity, 'supplier_name' | 'category' | 'status' | 'expected_quantity' | 'received_quantity' | 'notes' | 'product_id'>>
   ): Promise<BatchEntity>
 
   // FIFO Rule Support: find the oldest batch for a product that still has active stock
@@ -123,6 +123,14 @@ export interface IBarcodeRepository {
 
   relocateItem(barcode_string: string, target_location_id: number): Promise<BarcodeItemEntity>
   voidBarcodes(barcode_strings: string[]): Promise<number>
+  updateBatchItems(
+    batch_id: number,
+    data: {
+      status?: BarcodeStatus
+      product_id?: number | null
+      location_id?: number | null
+    }
+  ): Promise<number>
 
   // Stock Queries
   getStockDashboardSummary(): Promise<{

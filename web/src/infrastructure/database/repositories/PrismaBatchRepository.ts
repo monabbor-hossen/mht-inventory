@@ -150,13 +150,14 @@ export class PrismaBatchRepository implements IBatchRepository {
 
   async updateBatch(
     id: number,
-    data: Partial<Pick<BatchEntity, 'supplier_name' | 'category' | 'status' | 'expected_quantity' | 'received_quantity' | 'notes'>>
+    data: Partial<Pick<BatchEntity, 'supplier_name' | 'category' | 'status' | 'expected_quantity' | 'received_quantity' | 'notes' | 'product_id'>>
   ): Promise<BatchEntity> {
     const batch = await prisma.batch.update({
       where: { id },
       data: {
         supplier_name: data.supplier_name,
         category: data.category,
+        product_id: data.product_id,
         status: data.status,
         expected_quantity: data.expected_quantity,
         received_quantity: data.received_quantity,

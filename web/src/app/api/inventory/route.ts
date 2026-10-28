@@ -61,11 +61,33 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// POST: Forward to inbound receiving
+// POST: Forward to inbound receiving or dynamic adjustment
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const mode = body.mode === 'BLIND' ? 'BLIND' : 'ASN'
+
+    // Dynamic adjustment branch
+    if (body.mode?.toLowerCase() === 'adjust') {
+      const batchId = Number(body.batchId || body.batch_id)
+      const delta = Number(body.delta || body.quantity || 0)
+      const action = delta < 0 || body.action === 'VOID' ? 'VOID' : 'ADD'
+      const quantity = Math.abs(delta)
+      const result = await container.inboundUseCases.adjustBatchQuantity({
+        batch_id: batchId,
+        action,
+        quantity: action === 'ADD' ? quantity : undefined,
+        barcode_strings: body.barcode_strings || body.barcodes,
+        reason: body.reason || 'Dynamic adjustment via inventory API',
+        user_id: body.user_id ? Number(body.user_id) : undefined,
+      })
+      return jsonResponse({
+        success: true,
+        message: `Successfully adjusted batch quantity (${action})`,
+        data: result,
+      })
+    }
+
+    const mode = body.mode?.toUpperCase() === 'BLIND' ? 'BLIND' : 'ASN'
     const expectedQuantity = Number(body.expected_quantity || body.quantity || body.bags_count || 1)
 
     const result = await container.inboundUseCases.receiveInboundStock({
@@ -94,6 +116,35 @@ export async function POST(request: NextRequest) {
         barcodes: result.barcodes.map((b: any) => b.barcode_string),
       },
     }, 201)
+  } catch (error) {
+    return handleApiError(error)
+  }
+}
+
+// PUT: Late Metadata Binding (Assign supplier, product, category, location to draft batch)
+export async function PUT(request: NextRequest) {
+  try {
+    const body = await request.json()
+    const batchId = Number(body.batchId || body.batch_id || body.id)
+    if (!batchId) {
+      return jsonResponse({ success: false, error: 'batchId is required' }, 400)
+    }
+
+    const updated = await container.inboundUseCases.bindLateMetadata({
+      batch_id: batchId,
+      supplier_name: body.supplier || body.supplier_name,
+      category: body.category,
+      product_id: body.productId || body.product_id ? Number(body.productId || body.product_id) : undefined,
+      target_location_id: body.locationId || body.target_location_id ? Number(body.locationId || body.target_location_id) : undefined,
+      notes: body.notes,
+      user_id: body.userId || body.user_id ? Number(body.userId || body.user_id) : undefined,
+    })
+
+    return jsonResponse({
+      success: true,
+      message: `Metadata bound successfully to batch ${updated.batch_number}`,
+      data: updated,
+    })
   } catch (error) {
     return handleApiError(error)
   }
